@@ -1,0 +1,15 @@
+Third-party components used by Overtone
+=======================================
+
+1) SpotifyMusicMod — Copyright (c) 2026 Kartonek (Kart-Modding)
+   https://github.com/Kart-Modding/SpotifyMusicMod
+   License: MIT. Full text and copyright notice: LICENSE-SpotifyMusicMod.txt
+   Used in: dev.musicplayer.compat.Canvas, dev.musicplayer.hud.CoverArt
+   (render layer, cover loading) and as a design reference.
+   Overtone itself is also MIT (see LICENSE); keep both copyright notices.
+
+2) JLayer 1.0.1.4 (com.googlecode.soundlibs:jlayer) — MP3 decoder
+   License: LGPL. Bundled unmodified as a separate nested jar
+   (Fabric "include"), so it can be replaced by the user.
+   Project: https://github.com/umjammer/jlayer
+   The full LGPL text applies to this library: https://www.gnu.org/licenses/lgpl-2.1.html

@@ -1,0 +1,12 @@
+{
+  "key.musicplayer.open": "Открыть плеер",
+  "key.musicplayer.toggle_hud": "Показать/скрыть HUD",
+  "screen.musicplayer.title": "Overtone",
+  "key.musicplayer.hud_settings": "Настройки HUD",
+  "key.musicplayer.prev": "Музыка: предыдущий трек",
+  "key.musicplayer.next": "Музыка: следующий трек",
+  "key.musicplayer.pause": "Музыка: пауза / старт",
+  "key.musicplayer.vol_up": "Музыка: громкость +",
+  "key.musicplayer.vol_down": "Музыка: громкость −",
+  "key.musicplayer.world_lyrics": "Музыка: летающий текст вкл/выкл"
+}

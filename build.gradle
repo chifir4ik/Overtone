@@ -1,0 +1,42 @@
+plugins {
+    id 'net.fabricmc.fabric-loom' version "${loom_version}"
+}
+
+base {
+    archivesName = project.archives_base_name
+}
+
+version = project.mod_version
+group = 'dev.musicplayer'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:${project.minecraft_version}"
+    implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+    implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+    include implementation("com.googlecode.soundlibs:jlayer:1.0.1.4")
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    // Minecraft 26.x работает на Java 25
+    options.release = 25
+}
+
+processResources {
+    inputs.property "version", project.version
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+// Лицензии должны идти вместе с бинарником (MIT SpotifyMusicMod — обязательно)
+jar {
+    from("LICENSE")
+    from("THIRD_PARTY_NOTICES.txt")
+    from("LICENSE-SpotifyMusicMod.txt")
+}

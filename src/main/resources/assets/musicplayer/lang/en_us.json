@@ -1,0 +1,12 @@
+{
+  "key.musicplayer.open": "Open Player",
+  "key.musicplayer.toggle_hud": "Toggle HUD",
+  "screen.musicplayer.title": "Overtone",
+  "key.musicplayer.hud_settings": "HUD Settings",
+  "key.musicplayer.prev": "Music: previous track",
+  "key.musicplayer.next": "Music: next track",
+  "key.musicplayer.pause": "Music: pause / play",
+  "key.musicplayer.vol_up": "Music: volume up",
+  "key.musicplayer.vol_down": "Music: volume down",
+  "key.musicplayer.world_lyrics": "Music: flying lyrics on/off"
+}
