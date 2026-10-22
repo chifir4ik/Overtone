@@ -1,7 +1,6 @@
 package dev.musicplayer.audio;
 
 import javax.sound.sampled.AudioFormat;
-import javax.sound.sampled.SourceDataLine;
 import java.util.function.Consumer;
 
 /** Общая часть проигрывателей, которые декодируют трек в PCM сами: поток, пауза, перемотка, громкость. */
@@ -21,7 +20,7 @@ public class StreamPlayer implements AudioEngine {
     private final String threadName;
     private byte[] data;
     private Runnable onEnd;
-    private Session session;
+    private volatile Session session;
     private volatile boolean paused;
     private volatile float volume = 0.8f;
     private volatile long lastPositionMs;
@@ -60,7 +59,7 @@ public class StreamPlayer implements AudioEngine {
     @Override public void setVolume(float v) {
         volume = Math.max(0f, Math.min(1f, v));
         Session s = session;
-        if (s != null) s.applyVolume();
+        if (s != null) s.setVolume(volume);
     }
 
     @Override public boolean isPlaying() {
@@ -86,7 +85,7 @@ public class StreamPlayer implements AudioEngine {
         if (s == null) return;
         lastPositionMs = s.position();
         s.stop = true;
-        try { SourceDataLine l = s.line; if (l != null) { l.stop(); l.flush(); } } catch (Exception ignored) {}
+        s.abort();
         session = null;
     }
 
@@ -96,30 +95,34 @@ public class StreamPlayer implements AudioEngine {
         final Runnable end;
         volatile boolean stop;
         volatile boolean alive = true;
-        volatile SourceDataLine line;
-        volatile boolean softGain;
+        volatile AudioOut out;
 
         Session(byte[] raw, long startMs, Runnable end) { this.raw = raw; this.startMs = startMs; this.end = end; }
 
         long position() {
-            SourceDataLine l = line;
-            return startMs + (l == null ? 0 : l.getMicrosecondPosition() / 1000);
+            AudioOut o = out;
+            return startMs + (o == null ? 0 : o.microsecondPosition() / 1000);
         }
 
-        void applyVolume() {
-            SourceDataLine l = line;
-            if (l != null) softGain = !Mp3Player.applyGain(l, volume);
+        void setVolume(float v) {
+            AudioOut o = out;
+            if (o != null) o.setVolume(v);
+        }
+
+        void abort() {
+            AudioOut o = out;
+            if (o != null) o.abort();
         }
 
         @Override public void run() {
             try (Source src = opener.open(raw, startMs)) {
                 AudioFormat format = src.format();
-                SourceDataLine l = Mp3Player.openLine(format);
-                line = l;
-                applyVolume();
-                l.start();
-                pump(src, l, format.getFrameSize());
-                if (!stop) l.drain();
+                AudioOut o = AudioOuts.open(format);
+                out = o;
+                o.setVolume(volume);
+                o.start();
+                pump(src, o, format.getFrameSize());
+                if (!stop) o.drain();
                 if (!stop && end != null) { lastPositionMs = position(); end.run(); }
             } catch (Throwable e) {
                 if (!stop) {
@@ -129,34 +132,25 @@ public class StreamPlayer implements AudioEngine {
                 }
             } finally {
                 alive = false;
-                try { SourceDataLine l = line; if (l != null) { l.stop(); l.close(); } } catch (Exception ignored) {}
+                AudioOut o = out;
+                if (o != null) o.close();
             }
         }
 
-        private void pump(Source src, SourceDataLine l, int frameSize) throws Exception {
+        private void pump(Source src, AudioOut o, int frameSize) throws Exception {
             byte[] buf = new byte[frameSize * 2048];
             int n;
             while (!stop && (n = src.read(buf)) > 0) {
                 while (paused && !stop) {
-                    if (l.isRunning()) l.stop();
+                    if (o.isRunning()) o.pause();
                     Thread.sleep(30);
                 }
                 if (stop) break;
-                if (!l.isRunning()) l.start();
-                AudioFormat lf = l.getFormat();
+                if (!o.isRunning()) o.resume();
+                AudioFormat lf = o.format();
                 dev.musicplayer.viz.Spectrum.feedPcm16(buf, n, lf.getChannels(), lf.getSampleRate(),
-                        l.getBufferSize() - l.available() + n);
-                if (softGain) scale(buf, n, volume);
-                l.write(buf, 0, n);
-            }
-        }
-
-        private void scale(byte[] b, int n, float gain) {
-            for (int i = 0; i + 1 < n; i += 2) {
-                short v = (short) ((b[i] & 0xFF) | (b[i + 1] << 8));
-                v = (short) (v * gain);
-                b[i] = (byte) v;
-                b[i + 1] = (byte) (v >> 8);
+                        o.queuedBytes() + n);
+                o.write(buf, 0, n);
             }
         }
     }
