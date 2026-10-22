@@ -490,6 +490,14 @@ public final class PlayerController {
         engine().seek(Math.max(0, Math.min(dur - 500, ms)));
     }
 
+    /** Перезапускает текущий трек на новом устройстве вывода (Spotify играет на своих устройствах). */
+    public void restartForAudioDevice() {
+        if (current == null || idle) return;
+        MusicProvider p = engine();
+        if (p == spotify) return;
+        p.seek(Math.max(0, p.positionMs()));
+    }
+
     public synchronized void toggleShuffle() { shuffle = !shuffle; history.clear(); shufflePlan.clear(); persist(); refreshPrefetch(); }
 
     public void cycleRepeat() { repeat = Repeat.values()[(repeat.ordinal() + 1) % Repeat.values().length]; persist(); refreshPrefetch(); }

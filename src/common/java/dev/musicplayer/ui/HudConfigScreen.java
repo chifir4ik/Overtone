@@ -21,7 +21,7 @@ import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.util.FormattedCharSequence;
-import dev.musicplayer.audio.Mp3Player;
+import dev.musicplayer.audio.AudioOuts;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -307,9 +307,13 @@ public class HudConfigScreen extends ModScreen {
                 }, () -> {
                     List<String> all = new ArrayList<>();
                     all.add("");
-                    all.addAll(Mp3Player.outputDevices());
+                    all.addAll(AudioOuts.devices());
                     int i = all.indexOf(p.audioDevice == null ? "" : p.audioDevice);
-                    p.audioDevice = all.get((i + 1) % all.size());
+                    String next = all.get((i + 1) % all.size());
+                    if (!next.equals(p.audioDevice == null ? "" : p.audioDevice)) {
+                        p.audioDevice = next;
+                        PlayerController.I.restartForAudioDevice();
+                    }
                 }, false));
                 rows.add(toggle("duck", () -> p.duckWhenInactive, v -> p.duckWhenInactive = v));
                 rows.add(header("loading"));
