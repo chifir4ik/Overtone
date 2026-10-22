@@ -83,7 +83,7 @@ public final class SafeHttp {
             HttpRequest.Builder rb = HttpRequest.newBuilder(uri).timeout(timeout)
                     .method(method, body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
             headers.forEach(rb::header);
-            HttpResponse<InputStream> r = sendWithFallback(rb.build());
+            HttpResponse<InputStream> r = sendWithFallback(rb.build(), body);
             int sc = r.statusCode();
             if (sc / 100 != 3) return r;
             String next = r.headers().firstValue("Location").orElseThrow(() -> new IOException(T.get("err.redirect")));
@@ -93,7 +93,7 @@ public final class SafeHttp {
         throw new IOException(T.get("err.too_many_redirects"));
     }
 
-    private HttpResponse<InputStream> sendWithFallback(HttpRequest req) throws IOException, InterruptedException {
+    private HttpResponse<InputStream> sendWithFallback(HttpRequest req, String body) throws IOException, InterruptedException {
         String host = req.uri().getHost();
         Long dead = deadUntil.get(host);
         if (dead != null && System.currentTimeMillis() < dead) throw new IOException(T.get("err.net_unreachable", host));
@@ -111,6 +111,13 @@ public final class SafeHttp {
                 if (first == null) first = e;
             }
         }
+        // браузер сайт открывает, а Java нет: чаще всего DNS провайдера, поэтому спрашиваем адрес по HTTPS
+        try {
+            return DohConnector.send(req, body);
+        } catch (IOException e) {
+            if (first == null) first = e;
+        }
+
         long now = System.currentTimeMillis();
         deadUntil.put(host, now + DEAD_FOR_MS);
         Long last = loggedAt.get(host);

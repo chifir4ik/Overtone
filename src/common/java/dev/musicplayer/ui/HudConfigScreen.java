@@ -17,6 +17,7 @@ import dev.musicplayer.hud.WorldLyricsRenderer;
 import dev.musicplayer.input.Hotkeys;
 import dev.musicplayer.util.T;
 import net.minecraft.client.Minecraft;
+import net.minecraft.locale.Language;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
@@ -43,7 +44,7 @@ public class HudConfigScreen extends ModScreen {
     /** Пока экран открыт, обычный HUD не рисуется — вместо него предпросмотр. */
     public static volatile boolean OPEN;
 
-    private enum Tab { WIDGET, LYRICS, WORLD, VOLUME, VISUALIZER, PLAYER, KEYS, GENERAL }
+    private enum Tab { WIDGET, LYRICS, WORLD, VOLUME, VISUALIZER, CINEMA, PLAYER, KEYS, GENERAL }
 
     private static final int SIDE_W = 92, PAD = 8, BAR_W = 5, HEADER_H = 28, FOOTER_H = 30;
     private static final HudConfig D = HudConfig.DEFAULTS;
@@ -185,6 +186,11 @@ public class HudConfigScreen extends ModScreen {
                 rows.add(choice("lyrics_mode", () -> c.lyricsMode, v -> c.lyricsMode = v));
                 rows.add(toggle("card_lyrics", () -> c.cardLyrics, v -> c.cardLyrics = v));
                 rows.add(toggle("word_karaoke", () -> c.lyricsWordKaraoke, v -> c.lyricsWordKaraoke = v));
+                rows.add(header("animation"));
+                rows.add(choice("lyrics_enter", () -> c.lyricsEnter, v -> c.lyricsEnter = v));
+                rows.add(choice("world_exit", () -> c.lyricsExit, v -> c.lyricsExit = v));
+                rows.add(slider("world_linger", 1, 15, 1, D.lyricsLinger, () -> c.lyricsLinger, v -> c.lyricsLinger = (int) v, HudConfigScreen::seconds));
+                rows.add(slider("world_letter_ms", 0, 120, 5, D.lyricsLetterMs, () -> c.lyricsLetterMs, v -> c.lyricsLetterMs = (int) v, HudConfigScreen::ms));
                 rows.add(slider("shift", -3000, 3000, 50, D.lyricsShiftMs, () -> c.lyricsShiftMs, v -> c.lyricsShiftMs = (int) v, HudConfigScreen::ms));
                 rows.add(header("look"));
                 rows.add(slider("scale", 0.5, 2.0, 0.05, D.lyricsScale, () -> c.lyricsScale, v -> c.lyricsScale = (float) v, HudConfigScreen::pct));
@@ -201,6 +207,7 @@ public class HudConfigScreen extends ModScreen {
             }
             case WORLD -> {
                 rows.add(toggle("world_enabled", () -> c.worldLyrics, v -> c.worldLyrics = v));
+                rows.add(toggle("world_with_hud", () -> c.lyricsWithWorld, v -> c.lyricsWithWorld = v));
                 rows.add(choice("world_mode", () -> c.worldMode, v -> c.worldMode = v));
                 rows.add(choice("follow", () -> c.worldFollowStyle, v -> c.worldFollowStyle = v));
                 rows.add(choice("word_layout", () -> c.worldLayout, v -> c.worldLayout = v));
@@ -267,12 +274,30 @@ public class HudConfigScreen extends ModScreen {
                 rows.add(slider("viz_height", 8, 160, 2, D.vizHeight, () -> c.vizHeight, v -> c.vizHeight = (int) v, HudConfigScreen::px));
                 rows.add(slider("scale", 0.5, 2.0, 0.05, D.vizScale, () -> c.vizScale, v -> c.vizScale = (float) v, HudConfigScreen::pct));
                 rows.add(slider("background", 0, 100, 5, D.vizBackground, () -> c.vizBackground, v -> c.vizBackground = (int) v, HudConfigScreen::percent));
+                rows.add(slider("viz_opacity", 5, 100, 5, D.vizOpacity, () -> c.vizOpacity, v -> c.vizOpacity = (int) v, HudConfigScreen::percent));
                 rows.add(header("position"));
                 rows.add(anchors("position", () -> c.vizAnchor, v -> c.vizAnchor = v));
                 rows.add(slider("offset_x", -100, 400, 1, D.vizOffsetX, () -> c.vizOffsetX, v -> c.vizOffsetX = (int) v, HudConfigScreen::px));
                 rows.add(slider("offset_y", -100, 400, 1, D.vizOffsetY, () -> c.vizOffsetY, v -> c.vizOffsetY = (int) v, HudConfigScreen::px));
                 rows.add(dragButton());
                 rows.add(note(T.get("note.visualizer")));
+            }
+            case CINEMA -> {
+                rows.add(note(T.get("note.cinema", Hotkeys.keyName(Hotkeys.Action.CINEMATIC))));
+                rows.add(choice("cine_shots", () -> c.cineShots, v -> c.cineShots = v));
+                rows.add(slider("cine_speed", 25, 300, 5, D.cineSpeed, () -> c.cineSpeed, v -> c.cineSpeed = (int) v, HudConfigScreen::percent));
+                rows.add(slider("cine_distance", 2, 14, 0.5, D.cineDistance, () -> c.cineDistance, v -> c.cineDistance = (float) v, HudConfigScreen::blocks));
+                rows.add(slider("cine_height", -1, 5, 0.1, D.cineHeight, () -> c.cineHeight, v -> c.cineHeight = (float) v, HudConfigScreen::blocksSigned));
+                rows.add(slider("cine_shot_sec", 2, 20, 1, D.cineShotSec, () -> c.cineShotSec, v -> c.cineShotSec = (int) v, HudConfigScreen::seconds));
+                rows.add(slider("cine_fov", -30, 30, 1, D.cineFov, () -> c.cineFov, v -> c.cineFov = (int) v, v -> (v > 0 ? "+" : "") + Math.round(v) + "°"));
+                rows.add(header("viz_sound"));
+                rows.add(toggle("cine_music", () -> c.cineMusic, v -> c.cineMusic = v));
+                rows.add(slider("cine_music_strength", 0, 200, 10, D.cineMusicStrength, () -> c.cineMusicStrength, v -> c.cineMusicStrength = (int) v, HudConfigScreen::percent));
+                rows.add(choice("cine_cuts", () -> c.cineCuts, v -> c.cineCuts = v));
+                rows.add(header("look"));
+                rows.add(toggle("cine_bars", () -> c.cineBars, v -> c.cineBars = v));
+                rows.add(toggle("cine_keep_music_hud", () -> c.cineKeepMusicHud, v -> c.cineKeepMusicHud = v));
+                rows.add(toggle("cine_exit_on_move", () -> c.cineExitOnMove, v -> c.cineExitOnMove = v));
             }
             case PLAYER -> {
                 rows.add(new PreviewRow());
@@ -281,6 +306,7 @@ public class HudConfigScreen extends ModScreen {
                         () -> p.syncAccent ? c.customAccent : p.customAccent, v -> { p.syncAccent = false; p.customAccent = v; }));
                 rows.add(slider("window_size", 70, 150, 5, PD.windowScale, () -> p.windowScale, v -> p.windowScale = (int) v, HudConfigScreen::percent));
                 rows.add(slider("corner", 0, 8, 1, PD.cornerRadius, () -> p.cornerRadius, v -> p.cornerRadius = (int) v, HudConfigScreen::num));
+                rows.add(choice("window_anim", () -> p.windowAnim, v -> p.windowAnim = v));
                 rows.add(slider("tint", 0, 3, 1, PD.tint, () -> p.tint, v -> p.tint = (int) v, v -> Math.round(v * 5) + "%"));
                 rows.add(slider("opacity", 20, 100, 5, PD.windowOpacity, () -> p.windowOpacity, v -> p.windowOpacity = (int) v, HudConfigScreen::percent));
                 rows.add(slider("dim", 0, 100, 5, PD.dim, () -> p.dim, v -> p.dim = (int) v, HudConfigScreen::percent));
@@ -310,6 +336,7 @@ public class HudConfigScreen extends ModScreen {
                     all.addAll(Mp3Player.outputDevices());
                     int i = all.indexOf(p.audioDevice == null ? "" : p.audioDevice);
                     p.audioDevice = all.get((i + 1) % all.size());
+                    PlayerController.I.reopenAudio();
                 }, false));
                 rows.add(toggle("duck", () -> p.duckWhenInactive, v -> p.duckWhenInactive = v));
                 rows.add(header("loading"));
@@ -356,7 +383,9 @@ public class HudConfigScreen extends ModScreen {
 
         void drag() { }
 
-        String hint() { return id == null ? null : T.get("hint." + id); }
+        String hint() {
+            return id != null && Language.getInstance().has("overtone.hint." + id) ? T.get("hint." + id) : null;
+        }
 
         void label(String text, int maxW) {
             g().text(font, font.plainSubstrByWidth(text, maxW), x, y + (h - font.lineHeight) / 2 + 1, PlayerTheme.TEXT_MAIN);
@@ -816,8 +845,11 @@ public class HudConfigScreen extends ModScreen {
 
     @Override
     public void onClose() {
-        Game.open(parent);
+        closeAnimated(() -> Game.open(parent));
     }
+
+    @Override
+    protected boolean animated() { return true; }
 
     @Override
     public boolean isPauseScreen() { return false; }

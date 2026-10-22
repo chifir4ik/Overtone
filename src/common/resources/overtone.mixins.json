@@ -1,0 +1,10 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "dev.musicplayer.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["CameraMixin", "FovMixin"],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

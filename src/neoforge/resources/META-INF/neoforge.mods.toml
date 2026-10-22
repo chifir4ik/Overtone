@@ -2,6 +2,9 @@ modLoader="javafml"
 loaderVersion="[1,)"
 license="MIT"
 
+[[mixins]]
+config="overtone.mixins.json"
+
 [[mods]]
 modId="musicplayer"
 version="${version}"

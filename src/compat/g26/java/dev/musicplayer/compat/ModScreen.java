@@ -10,13 +10,11 @@ import net.minecraft.network.chat.Component;
  * Основа экранов мода: скрывает различия API ввода и отрисовки между версиями игры.
  * Подклассы переопределяют draw/onClick/onDrag/onRelease/onKey.
  */
-public abstract class ModScreen extends Screen {
+public abstract class ModScreen extends AnimatedScreen {
     private MouseButtonEvent mouse;
     private KeyEvent key;
 
     protected ModScreen(Component title) { super(title); }
-
-    protected abstract void draw(Canvas g, int mx, int my, float delta);
 
     /** Рисует ванильные виджеты (поля ввода, кнопки). Вызывать из draw в нужный момент. */
     protected final void drawWidgets(Canvas g, int mx, int my, float delta) {
@@ -25,7 +23,7 @@ public abstract class ModScreen extends Screen {
 
     @Override
     public final void extractRenderState(GuiGraphicsExtractor g, int mx, int my, float delta) {
-        draw(new CanvasImpl(g), mx, my, delta);
+        frame(new CanvasImpl(g), mx, my, delta);
     }
 
     protected boolean onClick(double x, double y, int button, boolean doubleClick) { return super.mouseClicked(mouse, doubleClick); }
@@ -36,7 +34,7 @@ public abstract class ModScreen extends Screen {
     @Override
     public final boolean mouseClicked(MouseButtonEvent e, boolean doubleClick) {
         mouse = e;
-        return onClick(e.x(), e.y(), e.button(), doubleClick);
+        return isClosing() || onClick(e.x(), e.y(), e.button(), doubleClick);
     }
 
     @Override
@@ -54,6 +52,6 @@ public abstract class ModScreen extends Screen {
     @Override
     public final boolean keyPressed(KeyEvent e) {
         key = e;
-        return onKey(new KeyInput(e));
+        return isClosing() || onKey(new KeyInput(e));
     }
 }

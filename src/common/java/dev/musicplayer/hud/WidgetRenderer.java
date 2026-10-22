@@ -52,7 +52,7 @@ public final class WidgetRenderer {
         if (cfg.showCover && s.coverUrl != null) CoverArt.offerRemote(s.id, s.coverUrl);
 
         Draw.lastBox = null;
-        cardLyricsHidden = !preview && WorldLyricsRenderer.takesOver();   // текст уже летает в мире
+        cardLyricsHidden = !preview && WorldLyricsRenderer.hidesHud();   // текст уже летает в мире
         switch (cfg.layout) {
             case CLASSIC -> drawClassic(c, cfg, s, a, now);
             case BAR -> drawBar(c, cfg, s, a, now);

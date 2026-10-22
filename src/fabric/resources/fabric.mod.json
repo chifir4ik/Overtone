@@ -14,6 +14,9 @@
   "license": "MIT",
   "icon": "assets/musicplayer/icon.png",
   "environment": "client",
+  "mixins": [
+    "overtone.mixins.json"
+  ],
   "entrypoints": {
     "client": [
       "dev.musicplayer.fabric.OvertoneFabric"

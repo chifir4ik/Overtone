@@ -46,7 +46,7 @@ public final class VisualizerRenderer {
             float[] lv = VIZ.levels();
             float[] pk = VIZ.peaks();
             int accent = cfg.accentRgb();
-            int alpha255 = Draw.a255(a);
+            int alpha255 = Draw.a255(a * cfg.vizOpacity / 100.0F);
             boolean down = cfg.vizDirection == HudConfig.VizDirection.DOWN
                || cfg.vizDirection == HudConfig.VizDirection.AUTO && cfg.vizAnchor.v < 0;
             if (cfg.vizStyle == HudConfig.VizStyle.WAVE) {

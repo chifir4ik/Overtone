@@ -111,7 +111,6 @@ public class HelpScreen extends ModScreen {
         mouseX = mx; mouseY = my;
         th = PlayerTheme.current();
         drawWidgets(g, mx, my, delta);
-        g.fill(0, 0, width, height, th.dim);
 
         th.window(g, px, py, pw, ph);
 
@@ -268,7 +267,16 @@ public class HelpScreen extends ModScreen {
     }
 
     @Override
-    public void onClose() { Game.open(parent); }
+    public void onClose() { closeAnimated(() -> Game.open(parent)); }
+
+    @Override
+    protected boolean animated() { return true; }
+
+    @Override
+    protected void backdrop(Canvas g, float visible) {
+        int dim = PlayerTheme.current().dim;
+        g.fill(0, 0, width, height, (Math.round((dim >>> 24) * visible) << 24) | (dim & 0xFFFFFF));
+    }
 
     @Override
     public boolean isPauseScreen() { return false; }

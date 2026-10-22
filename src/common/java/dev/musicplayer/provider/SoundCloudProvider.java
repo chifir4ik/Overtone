@@ -25,6 +25,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -54,6 +55,8 @@ public final class SoundCloudProvider implements MusicProvider {
     private static final Pattern SCRIPT = Pattern.compile("<script[^>]+src=\"(https://[^\"]+\\.js)\"");
     private static final Pattern CLIENT_ID = Pattern.compile("client_id\\s*:\\s*\"([0-9a-zA-Z]{32})\"");
     private static final Pattern TOKEN = Pattern.compile("\\b\\d-\\d+-\\d+-[0-9A-Za-z]+\\b");
+    /** Сейчас сайт выдаёт oauth_token в виде JWT, а прежние токены имели вид «2-123-456-abc». */
+    private static final Pattern JWT = Pattern.compile("\\beyJ[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_-]{4,}");
     private static final Pattern PROFILE = Pattern.compile("[A-Za-z0-9_-]{2,60}");
 
     private static final SafeHttp HTTP = new SafeHttp(Set.of("soundcloud.com", "sndcdn.com", "soundcloud.cloud"));
@@ -79,26 +82,61 @@ public final class SoundCloudProvider implements MusicProvider {
     public boolean isLinked() { return userId != null; }
 
     /** Ставить лайки можно только с oauth_token; по ссылке на профиль лайки доступны для просмотра. */
-    public boolean canLike() { return token != null && userId != null; }
+    public boolean canLike() { return token != null && userId != null && !tokenExpired(); }
+
+    private record Jwt(String clientId, String userId, long expiresAtMs) {}
+
+    private volatile String jwtFor;
+    private volatile Jwt jwtInfo;
+
+    /** Что известно из самого токена; null — это не JWT. Подпись не проверяется: она нужна серверу, а не нам. */
+    private Jwt jwt() {
+        String t = token;
+        if (t == null || !JWT.matcher(t).matches()) return null;
+        if (!t.equals(jwtFor)) {
+            try {
+                String payload = new String(Base64.getUrlDecoder().decode(t.split("\\.")[1]), StandardCharsets.UTF_8);
+                JsonObject o = JsonParser.parseString(payload).getAsJsonObject();
+                String sub = str(o, "sub");
+                String id = sub.startsWith("soundcloud:users:") ? sub.substring("soundcloud:users:".length()) : null;
+                long exp = o.has("exp") ? o.get("exp").getAsLong() * 1000 : 0;
+                jwtInfo = new Jwt(str(o, "client_id"), id, exp);
+            } catch (RuntimeException e) {
+                jwtInfo = null;
+            }
+            jwtFor = t;
+        }
+        return jwtInfo;
+    }
+
+    /** JWT с сайта живёт сутки, потом его надо скопировать заново. */
+    public boolean tokenExpired() {
+        Jwt j = jwt();
+        return j != null && j.expiresAtMs > 0 && j.expiresAtMs < System.currentTimeMillis();
+    }
 
     @Override public boolean supportsLikes() { return canLike(); }
     @Override public boolean isLiked(String trackId) { return likedIds.contains(trackId); }
 
     /** Принимает ссылку на профиль, имя пользователя или oauth_token (значение, кука или заголовок целиком). */
     public CompletableFuture<Void> link(String input) {
-        String text = input == null ? "" : URLDecoder.decode(input.trim(), StandardCharsets.UTF_8);
+        String text = input == null ? "" : input.replaceAll("[\\p{Cf}\\r\\n]", "").trim();
+        if (text.contains("%")) text = URLDecoder.decode(text, StandardCharsets.UTF_8);
         if (text.isEmpty()) return CompletableFuture.failedFuture(new IOException(T.get("err.empty_field")));
         return looksLikeToken(text) ? linkToken(extractToken(text)) : linkProfile(text);
     }
 
     private static boolean looksLikeToken(String s) {
-        return s.contains("oauth_token") || TOKEN.matcher(s).find() || s.regionMatches(true, 0, "OAuth ", 0, 6);
+        if (JWT.matcher(s).find() || TOKEN.matcher(s).find()) return true;
+        if (s.contains("oauth_token") || s.regionMatches(true, 0, "OAuth ", 0, 6) || s.regionMatches(true, 0, "Bearer ", 0, 7)) return true;
+        // длинная строка без пробелов и слэшей — это не ссылка и не имя, а токен в неизвестном виде
+        return s.length() >= 40 && s.chars().noneMatch(c -> c == '/' || c == ' ' || c == '.' && s.contains("soundcloud"));
     }
 
     private CompletableFuture<Void> linkProfile(String text) {
-        String name = profileName(text);
-        if (!PROFILE.matcher(name).matches()) return CompletableFuture.failedFuture(new IOException(T.get("err.not_profile")));
         return Background.run(() -> {
+            String name = profileName(expandShortLink(text));
+            if (!PROFILE.matcher(name).matches()) throw new IOException(T.get("err.not_profile"));
             JsonObject user = api("GET", "/resolve?url=" + enc("https://soundcloud.com/" + name));
             if (!"user".equals(str(user, "kind"))) throw new IOException(T.get("err.no_profile"));
             store(String.valueOf(user.get("id").getAsLong()), str(user, "username"), token);
@@ -111,11 +149,13 @@ public final class SoundCloudProvider implements MusicProvider {
         token = t;
         return Background.run(() -> {
             try {
-                JsonObject me = api("GET", "/me");
+                if (tokenExpired()) throw new IOException(T.get("err.token_expired"));
+                JsonObject me = apiAuth("GET", "/me");
                 store(String.valueOf(me.get("id").getAsLong()), str(me, "username"), t);
             } catch (Exception e) {
                 token = previous;
-                throw new IOException(T.get("err.token_rejected", e.getMessage()));
+                throw e instanceof IOException io && io.getMessage() != null && io.getMessage().equals(T.get("err.token_expired"))
+                        ? io : new IOException(T.get("err.token_rejected", e.getMessage()));
             }
             refreshLikes();
             return null;
@@ -141,7 +181,7 @@ public final class SoundCloudProvider implements MusicProvider {
 
     private void refreshLikes() {
         try {
-            JsonObject r = api("GET", "/me/track_likes/ids?limit=5000");
+            JsonObject r = apiAuth("GET", "/me/track_likes/ids?limit=5000");
             Set<String> ids = new HashSet<>();
             for (JsonElement e : r.getAsJsonArray("collection"))
                 ids.add(e.isJsonObject() ? String.valueOf(e.getAsJsonObject().get("id").getAsLong()) : e.getAsString());
@@ -167,8 +207,9 @@ public final class SoundCloudProvider implements MusicProvider {
 
     @Override public CompletableFuture<Void> setLiked(Track t, boolean like) {
         return Background.run(() -> {
+            if (tokenExpired()) throw new IOException(T.get("err.token_expired"));
             if (!canLike()) throw new IOException(T.get("err.likes_need_token"));
-            api(like ? "PUT" : "DELETE", "/users/" + userId + "/track_likes/" + t.id());
+            apiAuth(like ? "PUT" : "DELETE", "/users/" + userId + "/track_likes/" + t.id());
             if (like) likedIds.add(t.id()); else likedIds.remove(t.id());
             return null;
         });
@@ -182,6 +223,7 @@ public final class SoundCloudProvider implements MusicProvider {
             JsonObject o = e.getAsJsonObject();
             if (o.has("track") && o.get("track").isJsonObject()) o = o.getAsJsonObject("track");
             if (!o.has("id") || str(o, "title").isBlank() || "BLOCK".equals(str(o, "policy"))) continue;
+            if ("SNIP".equals(str(o, "policy"))) PREVIEW_ONLY.add(String.valueOf(o.get("id").getAsLong()));
             out.add(parseTrack(o));
         }
         return out;
@@ -222,6 +264,11 @@ public final class SoundCloudProvider implements MusicProvider {
         });
     }
 
+    private static final java.util.Set<String> PREVIEW_ONLY = ConcurrentHashMap.newKeySet();
+
+    /** SoundCloud отдаёт этот трек только 30-секундным фрагментом: полная версия для подписчиков Go+. */
+    public static boolean isPreviewOnly(String id) { return id != null && PREVIEW_ONLY.contains(id); }
+
     private byte[] audio(String id, int gen) throws Exception {
         String key = "sc_" + id;
         byte[] hit = cache.get(key);
@@ -253,7 +300,9 @@ public final class SoundCloudProvider implements MusicProvider {
             if (round == 1) refreshClientId();
             for (JsonObject v : variants) {
                 try {
-                    return fetchVariant(v, id, gen);
+                    byte[] data = fetchVariant(v, id, gen);
+                    if (score(v) >= 10) PREVIEW_ONLY.add(id);
+                    return data;
                 } catch (CancellationException e) {
                     throw e;
                 } catch (IOException | RuntimeException e) {
@@ -276,8 +325,16 @@ public final class SoundCloudProvider implements MusicProvider {
     }
 
     private JsonObject resolveStream(String transcodingUrl) throws Exception {
-        String url = transcodingUrl + (transcodingUrl.contains("?") ? "&" : "?") + "client_id=" + clientId();
-        return HTTP.getJson(url, headers());
+        String base = transcodingUrl + (transcodingUrl.contains("?") ? "&" : "?") + "client_id=";
+        if (token != null) {
+            Jwt j = jwt();
+            try {
+                return HTTP.getJson(base + (j != null && !j.clientId().isEmpty() ? j.clientId() : clientId()), headers(true));
+            } catch (IOException e) {
+                if (e.getMessage() == null || !e.getMessage().contains("HTTP 40")) throw e;
+            }
+        }
+        return HTTP.getJson(base + clientId(), headers(false));
     }
 
     private byte[] fetchVariant(JsonObject variant, String id, int gen) throws Exception {
@@ -368,11 +425,30 @@ public final class SoundCloudProvider implements MusicProvider {
 
     @Override public boolean isCached(String id) { return id != null && cache.has("sc_" + id); }
 
+    /** Запрос, которому токен не обязателен: если токен протух или отвергнут, пробуем без него. */
     private JsonObject api(String method, String path) throws Exception {
+        try {
+            return request(method, path, token != null);
+        } catch (IOException e) {
+            if (token == null || e.getMessage() == null || !e.getMessage().matches(".*HTTP (401|403)")) throw e;
+            return request(method, path, false);
+        }
+    }
+
+    /** Запрос, который работает только с токеном (аккаунт, лайки): без него ответ бессмыслен. */
+    private JsonObject apiAuth(String method, String path) throws Exception {
+        if (token == null) throw new IOException(T.get("err.likes_need_token"));
+        return request(method, path, true);
+    }
+
+    private JsonObject request(String method, String path, boolean auth) throws Exception {
         for (int attempt = 0; ; attempt++) {
-            String url = API + path + (path.contains("?") ? "&" : "?") + "client_id=" + clientId();
-            SafeHttp.Reply r = HTTP.send(method, url, headers());
-            if ((r.status() == 401 || r.status() == 403) && attempt == 0) { refreshClientId(); continue; }
+            // токен выдан конкретному client_id и с другим не принимается; для обычного токена берём общий
+            Jwt j = auth ? jwt() : null;
+            String id = j != null && !j.clientId().isEmpty() && attempt == 0 ? j.clientId() : clientId();
+            String url = API + path + (path.contains("?") ? "&" : "?") + "client_id=" + id;
+            SafeHttp.Reply r = HTTP.send(method, url, headers(auth));
+            if ((r.status() == 401 || r.status() == 403) && attempt == 0) { if (!auth) refreshClientId(); continue; }
             if (r.status() / 100 != 2) throw new IOException("SoundCloud: HTTP " + r.status());
             try {
                 JsonElement e = JsonParser.parseString(r.body());
@@ -383,11 +459,11 @@ public final class SoundCloudProvider implements MusicProvider {
         }
     }
 
-    private Map<String, String> headers() {
+    private Map<String, String> headers(boolean auth) {
         Map<String, String> h = new HashMap<>(cdnHeaders());
         h.put("Accept", "application/json");
         String t = token;
-        if (t != null) h.put("Authorization", "OAuth " + t);
+        if (auth && t != null) h.put("Authorization", "OAuth " + t);
         return h;
     }
 
@@ -415,14 +491,29 @@ public final class SoundCloudProvider implements MusicProvider {
         throw new IOException(T.get("err.sc_changed"));
     }
 
+    /** Короткие ссылки из «Поделиться» (on.soundcloud.com/...) ведут на настоящий адрес через редирект. */
+    private static String expandShortLink(String text) throws Exception {
+        String s = text.trim().replaceAll("^[<\"'(\\[]+|[>\"')\\]]+$", "");
+        if (!s.matches("(?i)^(https?://)?(on|soundcloud\\.app)\\.?(goo\\.gl|soundcloud\\.com)?/.*") && !s.matches("(?i)^(https?://)?on\\.soundcloud\\.com/.*")) return s;
+        String url = s.matches("(?i)^https?://.*") ? s : "https://" + s;
+        try {
+            return HTTP.open("GET", url, cdnHeaders()).uri().toString();
+        } catch (IOException e) {
+            return s;
+        }
+    }
+
     private static String profileName(String input) {
-        String s = input.replaceFirst("(?i)^https?://", "").replaceFirst("(?i)^(www\\.|m\\.)?soundcloud\\.com/", "").replaceFirst("^@", "");
+        String s = input.trim().replaceAll("^[<\"'(\\[]+|[>\"')\\]]+$", "")
+                .replaceFirst("(?i)^https?://", "").replaceFirst("(?i)^(www\\.|m\\.|mobile\\.)?soundcloud\\.com/", "").replaceFirst("^@", "");
         int cut = 0;
         while (cut < s.length() && "/?#".indexOf(s.charAt(cut)) < 0) cut++;
         return s.substring(0, cut);
     }
 
     private static String extractToken(String s) {
+        Matcher jwt = JWT.matcher(s);
+        if (jwt.find()) return jwt.group();
         Matcher m = TOKEN.matcher(s);
         if (m.find()) return m.group();
         int i = s.indexOf("oauth_token=");
@@ -432,7 +523,7 @@ public final class SoundCloudProvider implements MusicProvider {
             while (end < s.length() && ";& \"".indexOf(s.charAt(end)) < 0) end++;
             s = s.substring(0, end);
         }
-        return s.replaceFirst("(?i)^oauth\\s+", "").replace("\"", "").trim();
+        return s.replaceFirst("(?i)^(oauth|bearer)\\s+", "").replace("\"", "").trim();
     }
 
     @Override public void stop() {

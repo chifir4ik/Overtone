@@ -13,6 +13,26 @@ import java.util.List;
  * см. LICENSE-SpotifyMusicMod.txt.
  */
 public abstract class Canvas {
+    /** Прозрачность, которая домножается на всё, что рисуется (выцветание окон). */
+    protected float opacity = 1f;
+
+    public float opacity() { return opacity; }
+
+    public void setAlpha(float a) { opacity = Math.max(0f, Math.min(1f, a)); }
+
+    protected final int faded(int argb) {
+        if (opacity >= 1f) return argb;
+        return (Math.round((argb >>> 24) * opacity) << 24) | (argb & 0xFFFFFF);
+    }
+
+    /** 0 — цвет получился бы невидимым. Шрифт считает альфу меньше 4 за непрозрачную, поэтому её чиним заранее. */
+    protected final int fadedText(int argb) {
+        if (opacity >= 1f) return argb;
+        int a = (argb >>> 24) < 4 ? 255 : argb >>> 24;
+        a = Math.round(a * opacity);
+        return a < 5 ? 0 : (a << 24) | (argb & 0xFFFFFF);
+    }
+
     public abstract int screenWidth();
     public abstract int screenHeight();
 
@@ -25,6 +45,7 @@ public abstract class Canvas {
     public abstract void pushMatrix();
     public abstract void translate(float x, float y);
     public abstract void scale(float x, float y);
+    public abstract void rotate(float rad);
     public abstract void popMatrix();
 
     private static Font font() { return Minecraft.getInstance().font; }

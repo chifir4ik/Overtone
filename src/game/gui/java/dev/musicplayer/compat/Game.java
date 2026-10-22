@@ -14,6 +14,14 @@ public final class Game {
 
     public static boolean guiOpen() { return screen() != null; }
 
+    /** Спрятан ли ванильный интерфейс (F1). */
+    public static boolean hudHidden() { return Minecraft.getInstance().gui.hud.isHidden(); }
+
+    public static void setHudHidden(boolean hidden) {
+        var hud = Minecraft.getInstance().gui.hud;
+        if (hud.isHidden() != hidden) hud.toggle();
+    }
+
     public static boolean playerListHeld() { return Minecraft.getInstance().options.keyPlayerList.isDown(); }
 
     public static void open(Screen screen) {

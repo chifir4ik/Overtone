@@ -41,11 +41,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Яндекс Музыка через НЕОФИЦИАЛЬНЫЙ API (api.music.yandex.net) — официального публичного API у сервиса нет.
- * Вход: открываем страницу oauth.yandex.ru, пользователь копирует токен из адресной строки и вставляет в игру.
+ * Вход: по коду на ya.ru/device или, по-старому, ссылкой с токеном из адресной строки после входа на oauth.yandex.ru.
  */
 public final class YandexMusicProvider implements MusicProvider {
     public static final String OAUTH_URL =
-            "https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d";
+            "https://oauth.yandex.ru/authorize?response_type=token&client_id=" + YandexMusicProvider.CLIENT_ID;
     private static final int MAX_TRACK_BYTES = 120 * 1024 * 1024;
     private static final String API = "https://api.music.yandex.net";
     private static final String SIGN_SALT = "XGRlBW9FXlekgbPrRHuSiA";
@@ -144,6 +144,70 @@ public final class YandexMusicProvider implements MusicProvider {
             if (f != null) f.complete(null);
             return null;
         });
+    }
+
+    /** Код для страницы ya.ru/device и до какого момента он действует. */
+    public record DeviceCode(String userCode, String url, long expiresAt) {}
+
+    private static final String CLIENT_ID = "23cabbbdc6cd418abb4b39c32c41195d";
+    /** Секрет официального Android-приложения Яндекс Музыки, им пользуются все сторонние клиенты. */
+    private static final String CLIENT_SECRET = "53bc75238f0c4d08a118e51fe9203300";
+    private final AtomicInteger codeLogin = new AtomicInteger();
+
+    /**
+     * Вход по коду (OAuth device flow): игра показывает короткий код, человек вводит его на ya.ru/device и
+     * нажимает «Разрешить», а токен игра забирает сама. Ничего не надо выковыривать из адресной строки, поэтому
+     * не мешает и переадресация на music.yandex.kz, из-за которой токен в ссылке терялся.
+     */
+    public CompletableFuture<Void> loginWithCode(java.util.function.Consumer<DeviceCode> onCode) {
+        int my = codeLogin.incrementAndGet();
+        return async(() -> {
+            String deviceId = java.util.UUID.randomUUID().toString().replace("-", "").substring(0, 24);
+            JsonObject c = oauth("/device/code", "client_id=" + CLIENT_ID + "&device_id=" + deviceId + "&device_name=" + enc("Minecraft (Overtone)"));
+            String deviceCode = str(c, "device_code"), userCode = str(c, "user_code");
+            if (deviceCode.isEmpty() || userCode.isEmpty()) throw new IOException(T.get("err.code_failed"));
+            long expires = System.currentTimeMillis() + c.get("expires_in").getAsLong() * 1000;
+            long interval = Math.max(2, c.has("interval") ? c.get("interval").getAsLong() : 5) * 1000;
+            String url = str(c, "verification_url").isEmpty() ? "https://ya.ru/device" : str(c, "verification_url");
+            onCode.accept(new DeviceCode(userCode, url, expires));
+
+            String body = "grant_type=device_code&code=" + enc(deviceCode) + "&client_id=" + CLIENT_ID + "&client_secret=" + CLIENT_SECRET;
+            while (System.currentTimeMillis() < expires) {
+                Thread.sleep(interval);
+                if (codeLogin.get() != my) throw new java.util.concurrent.CancellationException();
+                JsonObject r = oauth("/token", body);
+                String accessToken = str(r, "access_token");
+                if (!accessToken.isEmpty()) {
+                    submitToken(accessToken).join();
+                    return null;
+                }
+                switch (str(r, "error")) {
+                    case "authorization_pending" -> { }
+                    case "slow_down" -> interval += 5000;
+                    case "access_denied" -> throw new IOException(T.get("err.code_denied"));
+                    case "expired_token" -> throw new IOException(T.get("err.code_expired"));
+                    default -> throw new IOException(str(r, "error_description").isEmpty() ? str(r, "error") : str(r, "error_description"));
+                }
+            }
+            throw new IOException(T.get("err.code_expired"));
+        });
+    }
+
+    public void cancelCodeLogin() { codeLogin.incrementAndGet(); }
+
+    /** Ответ OAuth-сервера; ошибки он отдаёт с кодом 400 и телом JSON, их разбирает вызывающий. */
+    private static JsonObject oauth(String path, String form) throws IOException, InterruptedException {
+        HttpRequest req = HttpRequest.newBuilder(URI.create("https://oauth.yandex.ru" + path))
+                .timeout(Duration.ofSeconds(15))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form))
+                .build();
+        HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        try {
+            return JsonParser.parseString(r.body()).getAsJsonObject();
+        } catch (RuntimeException e) {
+            throw new IOException("oauth.yandex.ru: HTTP " + r.statusCode());
+        }
     }
 
     private void verifyAsync() {
@@ -423,7 +487,7 @@ public final class YandexMusicProvider implements MusicProvider {
     private static final java.util.Map<String, String> FULL_ID = new ConcurrentHashMap<>();
 
     public CompletableFuture<WaveBatch> waveStart(String seed) {
-        return async(() -> newWaveSession(seed));
+        return async(() -> newWaveSession(seed, List.of()));
     }
 
     /** Станции волны: жанры, настроения, занятия, эпохи. Seed станции — «тип:тег». */
@@ -454,34 +518,50 @@ public final class YandexMusicProvider implements MusicProvider {
         };
     }
 
-    private WaveBatch newWaveSession(String seed) throws Exception {
+    private WaveBatch newWaveSession(String seed, List<String> played) throws Exception {
+        if (!played.isEmpty()) {
+            try {
+                return openSession(seed, queueOf(played));
+            } catch (IOException e) {
+                dev.musicplayer.MusicPlayerMod.LOGGER.warn("Wave session with history failed: {}", e.getMessage());
+            }
+        }
+        return openSession(seed, null);
+    }
+
+    private WaveBatch openSession(String seed, JsonArray queue) throws Exception {
         JsonObject body = new JsonObject();
         JsonArray seeds = new JsonArray();
         seeds.add(seed);
         body.add("seeds", seeds);
         body.addProperty("includeTracksInResponse", true);
+        if (queue != null) body.add("queue", queue);
         JsonObject r = postJson(API + "/rotor/session/new", body).getAsJsonObject("result");
         String sid = str(r, "radioSessionId");
         if (sid.isEmpty()) throw new IOException(T.get("err.wave_session"));
         return readBatch(sid, r);
     }
 
-    public CompletableFuture<WaveBatch> waveMore(String sessionId, String seed, String lastTrackId) {
+    /** played — id уже выданных сессии треков, старые первыми: по ним сервер понимает, что повторять нельзя. */
+    public CompletableFuture<WaveBatch> waveMore(String sessionId, String seed, List<String> played) {
         return async(() -> {
             try {
                 JsonObject body = new JsonObject();
-                // сервер принимает список, а не строку: со строкой он отвечал 400, и волна каждый раз начиналась заново
-                JsonArray queue = new JsonArray();
-                queue.add(FULL_ID.getOrDefault(lastTrackId, lastTrackId));
-                body.add("queue", queue);
+                body.add("queue", queueOf(played));
                 JsonObject r = postJson(API + "/rotor/session/" + sessionId + "/tracks", body).getAsJsonObject("result");
                 WaveBatch b = readBatch(sessionId, r);
                 if (!b.tracks().isEmpty()) return b;
             } catch (IOException e) {
                 dev.musicplayer.MusicPlayerMod.LOGGER.warn("Wave /tracks failed, starting a fresh session: {}", e.getMessage());
             }
-            return newWaveSession(seed);
+            return newWaveSession(seed, played);
         });
+    }
+
+    private static JsonArray queueOf(List<String> ids) {
+        JsonArray queue = new JsonArray();
+        for (String id : ids) queue.add(FULL_ID.getOrDefault(id, id));
+        return queue;
     }
 
     private static WaveBatch readBatch(String sid, JsonObject r) {
@@ -502,7 +582,7 @@ public final class YandexMusicProvider implements MusicProvider {
             JsonObject ev = new JsonObject();
             ev.addProperty("type", type);
             ev.addProperty("timestamp", java.time.Instant.now().toString());
-            if (trackId != null) ev.addProperty("trackId", trackId);
+            if (trackId != null) ev.addProperty("trackId", FULL_ID.getOrDefault(trackId, trackId));
             ev.addProperty("totalPlayedSeconds", Math.max(0, playedSeconds));
             JsonObject body = new JsonObject();
             body.add("event", ev);
@@ -675,9 +755,23 @@ public final class YandexMusicProvider implements MusicProvider {
 
     @Override public boolean isCached(String id) { return id != null && cache.has(id); }
 
-    public long cacheMegabytes() { return cache.diskMegabytes(); }
+    private volatile long cacheMb;
+    private volatile long cacheMbAt;
 
-    public void clearCache() { cache.clear(); }
+    /** Вызывается из окна настроек каждый кадр, поэтому папку кэша читаем не чаще раза в 3 с и не в потоке отрисовки. */
+    public long cacheMegabytes() {
+        long now = System.currentTimeMillis();
+        if (now - cacheMbAt > 3000) {
+            cacheMbAt = now;
+            EXEC.execute(() -> cacheMb = cache.diskMegabytes());
+        }
+        return cacheMb;
+    }
+
+    public void clearCache() {
+        cache.clear();
+        cacheMb = 0;
+    }
 
     /**
      * Что скачивать заранее. current — играющий трек, upcoming — ближайшие по порядку воспроизведения, keep — что

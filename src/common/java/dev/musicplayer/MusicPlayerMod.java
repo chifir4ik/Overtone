@@ -31,6 +31,7 @@ public final class MusicPlayerMod {
     public static void onClientTick() {
         CoverArt.tick();
         Hotkeys.tick();
+        dev.musicplayer.cinema.Cinematic.tick();
         PlayerController.I.tickPersist();
         dev.musicplayer.viz.Visualizer.tick();
     }

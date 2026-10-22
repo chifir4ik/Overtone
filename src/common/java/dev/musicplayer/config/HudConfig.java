@@ -53,6 +53,9 @@ public final class HudConfig {
     public enum WorldColor { CLASSIC, ACCENT, GRADIENT, RAINBOW, WHITE }
     /** Как буквы уходят: падают на блоки, рассыпаются, улетают, сдуваются ветром и т. д. */
     public enum WorldExit { FADE, FALL, SHATTER, FLOAT, WIND, SHRINK, SINK }
+    public enum LyricsEnter { SLIDE, RISE, POP, TYPE }
+    public enum CineShot { MIX, ORBIT, LOW, HIGH, DOLLY, CRANE, TRACK }
+    public enum CineCuts { SMOOTH, BEAT }
     public enum WorldGlow { OFF, SUNG, ALL }
     /** Что анимируется по очереди: слова целиком или отдельные буквы. */
     public enum WorldUnit { WORDS, LETTERS }
@@ -124,6 +127,8 @@ public final class HudConfig {
 
     /** Слова песни летят в мире, когда их поют. Включено — обычный HUD-текст для треков с таймкодами не рисуется. */
     public boolean worldLyrics = false;
+    /** Субтитры на экране остаются, даже когда слова летят в мире. */
+    public boolean lyricsWithWorld = false;
     public WorldMode worldMode = WorldMode.FOLLOW;
     /** SCREEN — текст всегда перед взглядом; WORLD — следует за игроком, но не поворачивается вместе с головой. */
     public FollowStyle worldFollowStyle = FollowStyle.SCREEN;
@@ -169,6 +174,24 @@ public final class HudConfig {
     /** Ручной сдвиг текста, мс: положительный — строки появляются позже, отрицательный — раньше. */
     public int lyricsShiftMs = 0;
     public boolean lyricsWordKaraoke = true;
+    public LyricsEnter lyricsEnter = LyricsEnter.RISE;
+    /** Как уходит строка, которую уже спели: рассыпается на буквы, как слова в мире. */
+    public WorldExit lyricsExit = WorldExit.FALL;
+    public int lyricsLinger = 3;
+    public int lyricsLetterMs = 25;
+
+    public CineShot cineShots = CineShot.MIX;
+    public CineCuts cineCuts = CineCuts.SMOOTH;
+    public int cineSpeed = 100;
+    public float cineDistance = 5f;
+    public float cineHeight = 1.2f;
+    public int cineShotSec = 6;
+    public int cineFov = -10;
+    public boolean cineMusic = true;
+    public int cineMusicStrength = 100;
+    public boolean cineBars = true;
+    public boolean cineKeepMusicHud = true;
+    public boolean cineExitOnMove = true;
 
     // Визуализатор (в стиле cava)
     public boolean vizEnabled = true;
@@ -187,6 +210,7 @@ public final class HudConfig {
     public boolean vizPeaks = true;
     public boolean vizHideIdle = true;
     public int vizBackground = 0;
+    public int vizOpacity = 100;
     public Anchor vizAnchor = Anchor.BOTTOM_RIGHT;
     public int vizOffsetX = 6;
     public int vizOffsetY = 6;
@@ -257,6 +281,7 @@ public final class HudConfig {
         vizSensitivity = Math.max(10, Math.min(400, vizSensitivity));
         vizSmoothing = Math.max(0, Math.min(95, vizSmoothing));
         vizBackground = Math.max(0, Math.min(100, vizBackground));
+        vizOpacity = Math.max(5, Math.min(100, vizOpacity));
         vizScale = Math.max(0.5f, Math.min(2.0f, vizScale));
         vizOffsetX = Math.max(-600, Math.min(600, vizOffsetX));
         vizOffsetY = Math.max(-600, Math.min(600, vizOffsetY));
@@ -273,6 +298,18 @@ public final class HudConfig {
         lyricsBackground = Math.max(0, Math.min(100, lyricsBackground));
         lyricsWidth = Math.max(120, Math.min(600, lyricsWidth));
         lyricsShiftMs = Math.max(-5000, Math.min(5000, lyricsShiftMs));
+        if (lyricsEnter == null) lyricsEnter = d.lyricsEnter;
+        if (lyricsExit == null) lyricsExit = d.lyricsExit;
+        lyricsLinger = Math.max(1, Math.min(15, lyricsLinger));
+        if (cineShots == null) cineShots = d.cineShots;
+        if (cineCuts == null) cineCuts = d.cineCuts;
+        cineSpeed = Math.max(25, Math.min(300, cineSpeed));
+        cineDistance = Math.max(2f, Math.min(14f, cineDistance));
+        cineHeight = Math.max(-1f, Math.min(5f, cineHeight));
+        cineShotSec = Math.max(2, Math.min(20, cineShotSec));
+        cineFov = Math.max(-30, Math.min(30, cineFov));
+        cineMusicStrength = Math.max(0, Math.min(200, cineMusicStrength));
+        lyricsLetterMs = Math.max(0, Math.min(120, lyricsLetterMs));
         lyricsLines = Math.max(3, Math.min(9, lyricsLines));
         offsetX = Math.max(-600, Math.min(600, offsetX));
         offsetY = Math.max(-600, Math.min(600, offsetY));

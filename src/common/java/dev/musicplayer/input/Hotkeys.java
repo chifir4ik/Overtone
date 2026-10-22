@@ -1,6 +1,7 @@
 package dev.musicplayer.input;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import dev.musicplayer.cinema.Cinematic;
 import dev.musicplayer.compat.Game;
 import dev.musicplayer.compat.KeyInput;
 import dev.musicplayer.compat.Keys;
@@ -37,7 +38,8 @@ public final class Hotkeys {
         PAUSE("pause", InputConstants.KEY_SEMICOLON),
         VOL_UP("vol_up", InputConstants.KEY_EQUALS),
         VOL_DOWN("vol_down", InputConstants.KEY_MINUS),
-        WORLD_LYRICS("world_lyrics", InputConstants.KEY_J);
+        WORLD_LYRICS("world_lyrics", InputConstants.KEY_J),
+        CINEMATIC("cinematic", InputConstants.KEY_O);
 
         public final int defaultKey;
         final String translationKey;
@@ -53,6 +55,8 @@ public final class Hotkeys {
     /** Поднимать при смене умолчаний: клавиши игроков сбрасываются на новые один раз. */
     private static final int KEYS_VERSION = 3;
     private static final int UNBOUND = -1;
+    private static boolean savePending;
+    private static int ticksSinceStart;
     private static final KeyMapping[] MAPPINGS = new KeyMapping[Action.values().length];
 
     /** Создаёт KeyMapping; регистрирует их загрузчик (см. {@link #mappings()}). */
@@ -93,11 +97,16 @@ public final class Hotkeys {
         if (dirty) {
             pc.save();
             KeyMapping.resetMapping();
-            save();
+            savePending = true;
         }
     }
 
     public static void tick() {
+        // options.txt пишется не при старте: часть модов регистрирует клавиши позже, и их бинды из файла пропали бы
+        if (savePending && ++ticksSinceStart > 400) {
+            savePending = false;
+            save();
+        }
         boolean inWorld = Game.screen() == null;
         for (Action a : Action.values()) {
             KeyMapping km = MAPPINGS[a.ordinal()];
@@ -121,7 +130,7 @@ public final class Hotkeys {
      */
     public static boolean handleOnMenu(Screen screen, KeyInput event) {
         Action a = actionFor(event);
-        if (a == null || a == Action.TOGGLE_HUD || a == Action.WORLD_LYRICS) return false;
+        if (a == null || a == Action.TOGGLE_HUD || a == Action.WORLD_LYRICS || a == Action.CINEMATIC) return false;
         perform(a, screen);
         return true;
     }
@@ -142,6 +151,7 @@ public final class Hotkeys {
                 c.save();
                 WorldLyricsRenderer.toast(T.get(c.worldLyrics ? "toast.world_on" : "toast.world_off"));
             }
+            case CINEMATIC -> Cinematic.toggle();
             default -> transport(a);
         }
     }

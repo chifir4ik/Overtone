@@ -26,6 +26,7 @@ import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraft.client.gui.Font;
 import net.minecraft.network.chat.Style;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -57,6 +58,11 @@ public final class WorldLyricsRenderer {
    private static final long OCCLUSION_CHECK_NS = 150_000_000L;
 
    private WorldLyricsRenderer() {
+   }
+
+   /** Летающий текст есть и обычный HUD-текст из-за него прячется. */
+   public static boolean hidesHud() {
+      return takesOver() && !HudConfig.get().lyricsWithWorld;
    }
 
    public static boolean takesOver() {
@@ -727,7 +733,14 @@ public final class WorldLyricsRenderer {
             }
          }
 
-         out.text(pose, x0, -4.5F, seq, cfg.worldShadow && !glow, seeNow, Math.round(alpha * 255.0F) << 24 | rgb & 16777215);
+         int argb = Math.round(alpha * 255.0F) << 24 | rgb & 16777215;
+         // Без глубины текст «сквозь блоки» затирается полупрозрачными слоями (вода, портал, листва), поэтому
+         // видимую часть сначала рисуем обычным текстом: он пишет глубину и защищает её.
+         if (seeNow) {
+            out.text(pose, x0, -4.5F, seq, false, false, argb);
+         }
+
+         out.text(pose, x0, -4.5F, seq, cfg.worldShadow && !glow, seeNow, argb);
          pose.popPose();
       }
    }
@@ -812,7 +825,7 @@ public final class WorldLyricsRenderer {
       }
    }
 
-   /** Заслонённые блоком слова рисуются поверх него, иначе за блоками из ресурспаков их не видно. */
+   /** Слова за неполным блоком (стекло, листва, блоки из ресурспаков) рисуются поверх него, цельные стены по-прежнему прячут текст. */
    private static boolean occluded(WorldLyricsRenderer.Group g, Vec3 cam) {
       long now = System.nanoTime();
       if (now - g.occCheckedAt < OCCLUSION_CHECK_NS) {
@@ -828,7 +841,10 @@ public final class WorldLyricsRenderer {
       try {
          Vec3 to = new Vec3(g.px, g.py, g.pz);
          HitResult hit = mc.level.clip(new ClipContext(cam, to, ClipContext.Block.OUTLINE, ClipContext.Fluid.NONE, mc.player));
-         g.occluded = hit != null && hit.getType() != HitResult.Type.MISS && hit.getLocation().distanceToSqr(cam) < to.distanceToSqr(cam) - 0.04;
+         g.occluded = hit instanceof BlockHitResult block
+            && hit.getType() != HitResult.Type.MISS
+            && hit.getLocation().distanceToSqr(cam) < to.distanceToSqr(cam) - 0.04
+            && !mc.level.getBlockState(block.getBlockPos()).canOcclude();
       } catch (RuntimeException e) {
          g.occluded = false;
       }

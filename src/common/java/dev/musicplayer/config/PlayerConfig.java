@@ -26,6 +26,8 @@ public final class PlayerConfig {
     /** Затемнение игры за окном плеера, %. */
     public int dim = 45;
     public int cornerRadius = 4;
+    public enum WindowAnim { ZOOM, SLIDE, POP, UNFOLD, OFF }
+    public WindowAnim windowAnim = WindowAnim.ZOOM;
     /** Размер окна, % от базового (560 x 330); на маленьких экранах окно всё равно не выходит за край. */
     public int windowScale = 100;
     /** Сторона обложки в окне, px. */
@@ -104,6 +106,7 @@ public final class PlayerConfig {
         if (accent == null) accent = d.accent;
         if (customAccent < 0 || customAccent > 0xFFFFFF) customAccent = -1;
         if (audioDevice == null) audioDevice = "";
+        if (windowAnim == null) windowAnim = d.windowAnim;
         if (settingsVersion < 1) {            // одноразовый перенос: старое значение по умолчанию (true) больше не навязываем
             useGameVolume = false;
             settingsVersion = 1;

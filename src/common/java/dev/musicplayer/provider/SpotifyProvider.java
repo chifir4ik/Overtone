@@ -73,6 +73,10 @@ public final class SpotifyProvider implements MusicProvider {
    private volatile long progressAt;
    private volatile float volume = -1.0F;
    private volatile int sentVolume = -1;
+   private volatile boolean local;
+   private volatile boolean confirmed;
+   private volatile Track lastTrack;
+   private volatile Consumer<String> errorSink;
    private Thread poller;
 
    @Override
@@ -449,7 +453,7 @@ public final class SpotifyProvider implements MusicProvider {
                String total = Json.str(count, "total");
                String sub = owner + (total.isEmpty() ? "" : (owner.isEmpty() ? "" : " · ") + T.tracks(Integer.parseInt(total)));
                JsonArray images = Json.array(o, "images");
-               String cover = !images.isEmpty() && images.get(0).isJsonObject() ? Json.str(images.get(0).getAsJsonObject(), "url") : "";
+               String cover = imageUrl(images);
                out.add(new MusicEntity(MusicEntity.Kind.PLAYLIST, id, Json.str(o, "name"), sub, cover.isEmpty() ? null : cover));
             }
          }
@@ -488,7 +492,7 @@ public final class SpotifyProvider implements MusicProvider {
 
       JsonObject album = Json.obj(o, "album");
       JsonArray images = Json.array(album, "images");
-      String cover = !images.isEmpty() && images.get(0).isJsonObject() ? Json.str(images.get(0).getAsJsonObject(), "url") : "";
+      String cover = imageUrl(images);
       long duration = o.has("duration_ms") && !o.get("duration_ms").isJsonNull() ? o.get("duration_ms").getAsLong() : 0L;
       String albumName = Json.str(album, "name");
       return new Track(
@@ -586,9 +590,22 @@ public final class SpotifyProvider implements MusicProvider {
       int my = this.generation.incrementAndGet();
       this.playingId = null;
       this.playing = false;
+      this.lastTrack = t;
       return Background.run(() -> {
-         this.player("PUT", "/play", "{\"uris\":[\"spotify:track:" + t.id() + "\"],\"position_ms\":0}");
+         // на Linux команда play из Web API вешает приложение, поэтому играем через него самого (MPRIS)
+         this.local = Mpris.available();
+         if (!this.local && Mpris.linux()) {
+            throw new IOException(T.get(Mpris.sandboxed() ? "err.sp_flatpak" : "err.sp_open_app"));
+         }
+
+         if (this.local) {
+            Mpris.openUri("spotify:track:" + t.id());
+         } else {
+            this.player("PUT", "/play", "{\"uris\":[\"spotify:track:" + t.id() + "\"],\"position_ms\":0}");
+         }
+
          if (this.generation.get() == my) {
+            this.confirmed = false;
             this.durationMs = t.durationMs();
             this.progressMs = 0L;
             this.progressAt = System.currentTimeMillis();
@@ -597,6 +614,22 @@ public final class SpotifyProvider implements MusicProvider {
             this.playingId = t.id();
             this.sentVolume = -1;
             this.ensurePoller();
+         }
+
+         if (this.local) {
+            // через секунду после открытия трека Spotify прыгает на место, где его бросили: возвращаем на начало.
+            // Считается только позиция дальше, чем реально прошло времени, иначе перезапустился бы честно начатый трек.
+            long opened = System.currentTimeMillis();
+            for (int i = 0; i < 30 && this.generation.get() == my; i++) {
+               Thread.sleep(100L);
+               Mpris.State st = Mpris.state();
+               if (st != null && t.id().equals(st.trackId()) && st.positionMs() > System.currentTimeMillis() - opened + 1500L) {
+                  Mpris.setPosition(t.id(), 0L);
+                  this.progressMs = 0L;
+                  this.progressAt = System.currentTimeMillis();
+                  break;
+               }
+            }
          }
 
          return null;
@@ -610,7 +643,7 @@ public final class SpotifyProvider implements MusicProvider {
       this.playingId = null;
       this.playing = false;
       if (was) {
-         this.control("PUT", "/pause");
+         this.control("PUT", "/pause", Mpris::pause);
       }
    }
 
@@ -620,7 +653,7 @@ public final class SpotifyProvider implements MusicProvider {
          this.progressMs = this.positionMs();
          this.progressAt = System.currentTimeMillis();
          this.playing = false;
-         this.control("PUT", "/pause");
+         this.control("PUT", "/pause", Mpris::pause);
       }
    }
 
@@ -629,7 +662,10 @@ public final class SpotifyProvider implements MusicProvider {
       if (this.playingId != null) {
          this.progressAt = System.currentTimeMillis();
          this.playing = true;
-         this.control("PUT", "/play");
+         this.control("PUT", "/play", Mpris::play);
+      } else if (this.lastTrack != null) {
+         // трек потерян (Spotify переключили из приложения): запускаем заново, а не молчим
+         this.play(this.lastTrack);
       }
    }
 
@@ -638,12 +674,20 @@ public final class SpotifyProvider implements MusicProvider {
       if (this.playingId != null) {
          this.progressMs = ms;
          this.progressAt = System.currentTimeMillis();
-         this.control("PUT", "/seek?position_ms=" + ms);
+         String id = this.playingId;
+         this.control("PUT", "/seek?position_ms=" + ms, () -> Mpris.setPosition(id, ms));
       }
    }
 
-   private void control(String method, String path) {
-      Background.run(() -> this.player(method, path, null)).exceptionally(e -> {
+   private void control(String method, String path, Mpris.Call viaApp) {
+      Background.run(() -> {
+         if (this.local) {
+            viaApp.run();
+            return null;
+         }
+
+         return this.player(method, path, null);
+      }).exceptionally(e -> {
          MusicPlayerMod.LOGGER.warn("Spotify {} failed: {}", path, e.getMessage());
          return null;
       });
@@ -676,6 +720,7 @@ public final class SpotifyProvider implements MusicProvider {
 
    @Override
    public void onAudioError(Consumer<String> sink) {
+      this.errorSink = sink;
    }
 
    private synchronized void ensurePoller() {
@@ -714,33 +759,61 @@ public final class SpotifyProvider implements MusicProvider {
 
    private void pushVolume() {
       float v = this.volume;
-      int pct = Math.round(Math.max(0.0F, Math.min(1.0F, v)) * 100.0F);
+      int pct = spotifyPercent(v);
       if (v >= 0.0F && pct != this.sentVolume) {
          this.sentVolume = pct;
 
          try {
-            this.player("PUT", "/volume?volume_percent=" + pct, null);
+            if (this.local) {
+               Mpris.setVolume(pct / 100.0);
+            } else {
+               this.player("PUT", "/volume?volume_percent=" + pct, null);
+            }
          } catch (Exception var4) {
             MusicPlayerMod.LOGGER.debug("Spotify volume not applied: {}", var4.getMessage());
          }
       }
    }
 
+   /** Громкость плеера мода линейная, а у Spotify она кубическая (громкость потока PipeWire): кубический корень уравнивает их. */
+   static int spotifyPercent(float v) {
+      float c = Math.max(0.0F, Math.min(1.0F, v));
+      return c <= 0.0F ? 0 : Math.max(1, Math.round((float)Math.cbrt(c) * 100.0F));
+   }
+
    private void poll() throws Exception {
       int gen = this.generation.get();
       String id = this.playingId;
-      JsonObject s = this.api("GET", "/me/player", null);
+      boolean present;
+      String itemId;
+      boolean isPlaying;
+      long progress;
+      if (this.local) {
+         Mpris.State st = Mpris.state();
+         present = st != null;
+         itemId = present ? st.trackId() : "";
+         isPlaying = present && st.playing();
+         progress = present ? st.positionMs() : 0L;
+      } else {
+         JsonObject s = this.api("GET", "/me/player", null);
+         present = s.size() != 0;
+         itemId = Json.str(Json.obj(s, "item"), "id");
+         isPlaying = "true".equals(Json.str(s, "is_playing"));
+         progress = s.has("progress_ms") && !s.get("progress_ms").isJsonNull() ? s.get("progress_ms").getAsLong() : 0L;
+      }
+
       if (id != null && gen == this.generation.get() && id.equals(this.playingId)) {
          long now = System.currentTimeMillis();
          boolean settling = now - this.startedAt < SETTLE_MS;
          boolean nearEnd = this.durationMs > 0L && this.positionMs() >= this.durationMs - END_WINDOW_MS;
-         String itemId = Json.str(Json.obj(s, "item"), "id");
-         boolean isPlaying = "true".equals(Json.str(s, "is_playing"));
-         long progress = s.has("progress_ms") && !s.get("progress_ms").isJsonNull() ? s.get("progress_ms").getAsLong() : 0L;
-         if (s.size() != 0 && itemId.equals(id)) {
+         if (present && itemId.equals(id) && isPlaying) {
+            this.confirmed = true;
+         }
+
+         if (present && itemId.equals(id)) {
             boolean wrapped = progress + 1000L < this.progressMs;
             boolean stoppedAtEnd = !isPlaying && (progress == 0L || this.durationMs > 0L && progress >= this.durationMs - 1000L);
-            if (nearEnd && (wrapped || stoppedAtEnd)) {
+            if (nearEnd && !settling && (wrapped || stoppedAtEnd)) {
                this.finish(gen);
             } else {
                this.progressMs = progress;
@@ -751,9 +824,15 @@ public final class SpotifyProvider implements MusicProvider {
             if (nearEnd) {
                this.finish(gen);
             } else {
-               // something else took over Spotify (the user picked a song in the app): let go quietly
                this.playingId = null;
                this.playing = false;
+               if (!this.confirmed) {
+                  // так и не заиграл: говорим об этом, а не показываем молча остановленный плеер
+                  Consumer<String> sink = this.errorSink;
+                  if (sink != null) {
+                     sink.accept(T.get("err.sp_not_started"));
+                  }
+               }
             }
          }
       }
@@ -774,6 +853,12 @@ public final class SpotifyProvider implements MusicProvider {
       byte[] b = new byte[bytes];
       RANDOM.nextBytes(b);
       return Base64.getUrlEncoder().withoutPadding().encodeToString(b);
+   }
+
+   /** Spotify отдаёт картинки от большой к маленькой (640, 300, 64): для обложки 256 px хватает второй. */
+   private static String imageUrl(JsonArray images) {
+      int i = Math.min(1, images.size() - 1);
+      return i >= 0 && images.get(i).isJsonObject() ? Json.str(images.get(i).getAsJsonObject(), "url") : "";
    }
 
    private static String orEmpty(String s) {

@@ -92,6 +92,7 @@ public class PlayerScreen extends ModScreen {
     private int accountBuilt;
     private boolean draggingVolume, draggingSeek;
     private boolean addAccountMode;
+    private boolean codeBuilt;
     private int chipEnd;
     /** Список сохранённых аккаунтов читается с диска один раз при построении экрана, а не каждый кадр. */
     private java.util.List<TokenStore.Account> savedAccounts = java.util.List.of();
@@ -139,6 +140,8 @@ public class PlayerScreen extends ModScreen {
         rw = pw - lw - 32 - 14;
 
         built = modeNow();
+        // после входа экран уже не LOGIN; без сброса флаг навсегда расходился с tick() и окно пересобиралось каждый тик
+        codeBuilt = built == Mode.LOGIN && ctl.yandexCode != null;
         builtAt = System.nanoTime();
         accountBuilt = accountState();
         String oldQuery = searchBox != null ? searchBox.getValue() : SessionState.get().query;
@@ -193,10 +196,14 @@ public class PlayerScreen extends ModScreen {
             java.util.List<TokenStore.Account> saved = ctl.yandex.savedAccounts();
             savedAccounts = saved;
             if (saved.isEmpty()) addAccountMode = true;
-            if (addAccountMode) {
+            if (codeBuilt) {
+                buildCodeWait();
+            } else if (addAccountMode) {
+                int cx = px + pw / 2, w = 280;
+                btn(Kind.PRIMARY, cx - w / 2, py + 62, w, 24, T.get("login.code_button"), Icon.NONE, mx -> ctl.loginYandexByCode());
                 buildTokenForm(T.get("login.open_yandex"), YandexMusicProvider.OAUTH_URL,
                         T.get("login.paste_hint"), ctl::submitToken,
-                        saved.isEmpty() ? null : "‹ " + T.get("login.back_saved"), () -> { addAccountMode = false; rebuildWidgets(); });
+                        saved.isEmpty() ? null : "‹ " + T.get("login.back_saved"), () -> { addAccountMode = false; rebuildWidgets(); }, py + 112);
             } else buildAccountList(saved);
         } else if (ctl.platform == Platform.SOUNDCLOUD) {
             buildTokenForm(T.get("login.open_soundcloud"), "https://soundcloud.com/",
@@ -276,16 +283,35 @@ public class PlayerScreen extends ModScreen {
     }
 
     private void buildTokenForm(String openLabel, String openUrl, String hint, Consumer<String> submit, String backLabel, Runnable back) {
-        int cx = px + pw / 2, w = 280;
-        btn(Kind.PRIMARY, cx - w / 2, py + 92, w, 20, "1. " + openLabel, Icon.NONE, mx -> Browser.open(openUrl));
+        buildTokenForm(openLabel, openUrl, hint, submit, backLabel, back, py + 92);
+    }
 
-        tokenBox = styledField(cx - w / 2, py + 138, w, 22, hint);
+    private void buildTokenForm(String openLabel, String openUrl, String hint, Consumer<String> submit, String backLabel, Runnable back, int top) {
+        int cx = px + pw / 2, w = 280;
+        boolean compact = top > py + 92;
+        Kind kind = compact ? Kind.GHOST : Kind.PRIMARY;
+        btn(kind, cx - w / 2, top, w, 20, "1. " + openLabel, Icon.NONE, mx -> Browser.open(openUrl));
+
+        tokenBox = styledField(cx - w / 2, top + (compact ? 26 : 46), w, 22, hint);
         tokenBox.setMaxLength(4096);
         field = tokenBox;
         addRenderableWidget(tokenBox);
 
-        btn(Kind.PRIMARY, cx - w / 2, py + 168, w, 20, "2. " + T.get("login.confirm"), Icon.NONE, mx -> submit.accept(tokenBox.getValue()));
-        if (back != null) btn(Kind.GHOST, cx - w / 2, py + 214, w, 18, backLabel, Icon.NONE, mx -> back.run());
+        btn(kind, cx - w / 2, top + (compact ? 54 : 76), w, 20, "2. " + T.get("login.confirm"), Icon.NONE, mx -> submit.accept(tokenBox.getValue()));
+        if (back != null) btn(Kind.GHOST, cx - w / 2, top + (compact ? 82 : 122), w, 18, backLabel, Icon.NONE, mx -> back.run());
+    }
+
+    private void buildCodeWait() {
+        int cx = px + pw / 2, w = 280;
+        btn(Kind.PRIMARY, cx - w / 2, py + 144, w, 20, T.get("login.code_reopen"), Icon.NONE, mx -> {
+            YandexMusicProvider.DeviceCode c = ctl.yandexCode;
+            if (c != null) Browser.open(c.url());
+        });
+        btn(Kind.GHOST, cx - w / 2, py + 168, w, 18, T.get("login.code_copy"), Icon.NONE, mx -> {
+            YandexMusicProvider.DeviceCode c = ctl.yandexCode;
+            if (c != null) PlayerController.copyToClipboard(c.userCode());
+        });
+        btn(Kind.GHOST, cx - w / 2, py + 190, w, 18, "‹ " + T.get("login.code_cancel"), Icon.NONE, mx -> ctl.cancelYandexCode());
     }
 
     private int headerButtonsW;   // ширина кнопок справа в шапке — чтобы текст статуса их не перекрывал
@@ -312,7 +338,8 @@ public class PlayerScreen extends ModScreen {
         }
 
         MusicProvider ap = ctl.active();
-        if (built == Mode.MAIN && ap != null && ap.platform().needsLogin) {
+        boolean scLinked = ap == ctl.soundcloud && ctl.soundcloud.isLinked();
+        if (built == Mode.MAIN && ap != null && (ap.platform().needsLogin || scLinked)) {
             String out = T.get("player.logout");
             int ow = font.width(out) + 16;
             btn(Kind.GHOST, px + pw - 12 - headerButtonsW - 4 - ow, py + 5, ow, 16, out, Icon.NONE, mx -> { page = 0; queueMode = false; addAccountMode = false; ctl.logout(); });
@@ -573,7 +600,9 @@ public class PlayerScreen extends ModScreen {
         }
         int account = accountState();
         if (linkOpen && account != accountBuilt) linkOpen = false;
-        if (modeNow() != built || account != accountBuilt || (built == Mode.MAIN && viewSig() != builtSig)) rebuildWidgets();
+        boolean codeNow = ctl.yandexCode != null && built == Mode.LOGIN;
+        if (modeNow() != built || account != accountBuilt || codeNow != codeBuilt
+                || (built == Mode.MAIN && viewSig() != builtSig)) rebuildWidgets();
     }
 
     @Override
@@ -647,19 +676,6 @@ public class PlayerScreen extends ModScreen {
         th = PlayerTheme.current();
         int r = th.radius;
 
-        float ot = Math.min(1f, (System.nanoTime() - openStart) / 260_000_000f);
-        float oe = 1f - (1f - ot) * (1f - ot) * (1f - ot);
-        int dimA = Math.round((th.dim >>> 24) * oe);
-        g.fill(0, 0, width, height, (dimA << 24) | (th.dim & 0xFFFFFF));
-        boolean opening = oe < 1f;
-        if (opening) {
-            float sc = 0.94f + 0.06f * oe;
-            float ccx = px + pw / 2f, ccy = py + ph / 2f;
-            g.pushMatrix();
-            g.translate(ccx, ccy + (1f - oe) * 12f);
-            g.scale(sc, sc);
-            g.translate(-ccx, -ccy);
-        }
         th.window(g, px, py, pw, ph);
         g.fill(px + 10, py + 24, px + pw - 10, py + 25, PlayerTheme.argb(0xFFFFFF, 16));
 
@@ -689,19 +705,12 @@ public class PlayerScreen extends ModScreen {
         drawField(g);
         for (Btn b : btns) drawBtn(g, b);
 
-        drawWidgets(g, mx, my, delta);
+        if (!transitioning()) drawWidgets(g, mx, my, delta);
         if (longStatus) drawLongStatus(g);
 
         float shown = Math.min(1f, (System.nanoTime() - builtAt) / 180_000_000f);
-        if (!opening && shown < 1f && built != Mode.PICKER)
+        if (!transitioning() && shown < 1f && built != Mode.PICKER)
             PlayerTheme.rrect(g, px, py + 26, pw, ph - 26, r, PlayerTheme.argb(th.panelBottom, Math.round(200 * (1f - shown) * (1f - shown))));
-
-        if (opening) {
-            float inv = 1f - oe;
-            PlayerTheme.rrect(g, px - 1, py - 1, pw + 2, ph + 2, r + 1,
-                    PlayerTheme.argb(0x12131A, Math.round(255 * inv * inv)));
-            g.popMatrix();
-        }
     }
 
     private float smooth(float current, boolean on) {
@@ -785,7 +794,7 @@ public class PlayerScreen extends ModScreen {
             return;
         }
         if (ctl.platform != Platform.YANDEX) return;
-        if (!addAccountMode) {
+        if (!addAccountMode && ctl.yandexCode == null) {
             center(g, T.get("login.choose"), cx, py + 36, PlayerTheme.TEXT_MAIN);
             center(g, T.get("login.saved_sub"), cx, py + 46, PlayerTheme.TEXT_DIM);
             int n = Math.min(MAX_ACCOUNT_ROWS, savedAccounts.size());
@@ -794,10 +803,24 @@ public class PlayerScreen extends ModScreen {
             center(g, T.get("login.forget"), cx, py + ph - 20, PlayerTheme.TEXT_DIM);
             return;
         }
-        center(g, T.get("login.ya_title"), cx, py + 36, PlayerTheme.TEXT_MAIN);
-        center(g, T.get("login.ya_1"), cx, py + 52, PlayerTheme.TEXT_MID);
-        center(g, T.get("login.ya_2"), cx, py + 64, PlayerTheme.TEXT_MID);
-        center(g, T.get("login.ya_privacy"), cx, py + 198, PlayerTheme.TEXT_DIM);
+        center(g, T.get("login.ya_title"), cx, py + 34, PlayerTheme.TEXT_MAIN);
+        YandexMusicProvider.DeviceCode code = ctl.yandexCode;
+        if (code != null) {
+            center(g, T.get("login.code_1"), cx, py + 50, PlayerTheme.TEXT_MID);
+            center(g, T.get("login.code_2"), cx, py + 62, PlayerTheme.TEXT_MID);
+            String shown = code.userCode().toUpperCase(java.util.Locale.ROOT);
+            float k = 2.5f;
+            g.push(k);
+            g.text(font, shown, Math.round((cx - font.width(shown) * k / 2) / k), Math.round((py + 78) / k), th.accent);
+            g.pop();
+            long left = Math.max(0, (code.expiresAt() - System.currentTimeMillis()) / 1000);
+            center(g, T.get("login.code_3"), cx, py + 108, PlayerTheme.TEXT_MID);
+            center(g, T.get("login.code_4", left / 60 + ":" + String.format("%02d", left % 60)), cx, py + 122, PlayerTheme.TEXT_DIM);
+            return;
+        }
+        center(g, T.get("login.code_hint"), cx, py + 50, PlayerTheme.TEXT_MID);
+        center(g, T.get("login.or_link"), cx, py + 98, PlayerTheme.TEXT_DIM);
+        center(g, T.get("login.ya_privacy"), cx, py + ph - 16, PlayerTheme.TEXT_DIM);
     }
 
     private void renderMain(Canvas g) {
@@ -1289,7 +1312,16 @@ public class PlayerScreen extends ModScreen {
     }
 
     @Override
-    public void onClose() { Game.open(parent); }
+    public void onClose() { closeAnimated(() -> Game.open(parent)); }
+
+    @Override
+    protected boolean animated() { return true; }
+
+    @Override
+    protected void backdrop(Canvas g, float visible) {
+        int dim = PlayerTheme.current().dim;
+        g.fill(0, 0, width, height, (Math.round((dim >>> 24) * visible) << 24) | (dim & 0xFFFFFF));
+    }
 
     @Override
     public boolean isPauseScreen() { return false; }   // музыка и игра не должны останавливаться

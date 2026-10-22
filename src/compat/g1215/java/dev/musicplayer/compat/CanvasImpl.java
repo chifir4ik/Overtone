@@ -14,21 +14,29 @@ public final class CanvasImpl extends Canvas {
     @Override public int screenHeight() { return ctx.guiHeight(); }
 
     @Override
-    public void fill(int x1, int y1, int x2, int y2, int argb) { ctx.fill(x1, y1, x2, y2, argb); }
+    public void fill(int x1, int y1, int x2, int y2, int argb) {
+        int c = faded(argb);
+        if (opacity < 1f && c >>> 24 == 0) return;
+        ctx.fill(x1, y1, x2, y2, c);
+    }
 
     @Override
     public void text(Font font, String value, int x, int y, int argb, boolean shadow) {
-        ctx.drawString(font, value, x, y, argb, shadow);
+        int c = fadedText(argb);
+        if (opacity < 1f && c == 0) return;
+        ctx.drawString(font, value, x, y, c, shadow);
     }
 
     @Override
     public void text(Font font, FormattedCharSequence value, int x, int y, int argb) {
-        ctx.drawString(font, value, x, y, argb, true);
+        int c = fadedText(argb);
+        if (opacity < 1f && c == 0) return;
+        ctx.drawString(font, value, x, y, c, true);
     }
 
     @Override
     public void texture(Tex texture, int x, int y, int width, int height, int textureSize, float alpha) {
-        int tint = (Math.max(0, Math.min(255, Math.round(alpha * 255f))) << 24) | 0xFFFFFF;
+        int tint = (Math.max(0, Math.min(255, Math.round(alpha * opacity * 255f))) << 24) | 0xFFFFFF;
         ctx.blit(RenderType::guiTextured, texture.id, x, y, 0.0F, 0.0F,
                 width, height, textureSize, textureSize, textureSize, textureSize, tint);
     }
@@ -36,5 +44,6 @@ public final class CanvasImpl extends Canvas {
     @Override public void pushMatrix() { ctx.pose().pushPose(); }
     @Override public void translate(float x, float y) { ctx.pose().translate(x, y, 0f); }
     @Override public void scale(float x, float y) { ctx.pose().scale(x, y, 1f); }
+    @Override public void rotate(float rad) { ctx.pose().mulPose(new org.joml.Quaternionf().rotationZ(rad)); }
     @Override public void popMatrix() { ctx.pose().popPose(); }
 }

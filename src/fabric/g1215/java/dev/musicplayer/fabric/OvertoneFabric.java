@@ -48,10 +48,6 @@ public final class OvertoneFabric implements ClientModInitializer {
     }
 
     private static void hud(Canvas c) {
-        if (HudConfigScreen.OPEN && Game.guiOpen()) return;   // в окне настроек вместо HUD рисуется предпросмотр
-        WidgetRenderer.render(c, false);
-        LyricsRenderer.render(c, false);
-        VolumeRenderer.render(c, false);
-        VisualizerRenderer.render(c, false);
+        dev.musicplayer.hud.HudLayers.render(c);
     }
 }

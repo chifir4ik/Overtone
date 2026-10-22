@@ -16,6 +16,8 @@ import dev.musicplayer.MusicPlayerMod;
 import dev.musicplayer.config.PlayerConfig;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import net.minecraft.client.Minecraft;
 import javax.sound.sampled.Mixer;
 import javax.sound.sampled.FloatControl;
 import javax.sound.sampled.SourceDataLine;
@@ -44,13 +46,15 @@ public final class Mp3Player implements AudioEngine {
         Throwable first = null;
 
         String wanted = PlayerConfig.get().audioDevice;
+        boolean explicit = wanted != null && !wanted.isBlank();
+        if (!explicit) wanted = gameDevice();
         if (wanted != null && !wanted.isBlank()) {
             for (Mixer.Info mi : AudioSystem.getMixerInfo()) {
-                if (!mi.getName().equals(wanted)) continue;
+                if (!(explicit ? mi.getName().equals(wanted) : sameDevice(mi.getName(), wanted))) continue;
                 SourceDataLine l = tryOpen(mi, info, f, buf);
                 if (l != null) return l;
             }
-            MusicPlayerMod.LOGGER.warn("Audio: device '{}' is unavailable, using the system default", wanted);
+            if (explicit) MusicPlayerMod.LOGGER.warn("Audio: device '{}' is unavailable, using the system default", wanted);
         }
         try {
             SourceDataLine l = (SourceDataLine) AudioSystem.getLine(info);
@@ -68,6 +72,23 @@ public final class Mp3Player implements AudioEngine {
             }
         }
         throw new LineUnavailableException(T.get("err.no_audio_output", first, names.length() == 0 ? T.get("err.none_found") : names));
+    }
+
+    /** Устройство из настроек звука Minecraft (OpenAL): пусто, если выбрано «по умолчанию». */
+    private static String gameDevice() {
+        try {
+            return Minecraft.getInstance().options.soundDevice().get();
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    /** Имя в Java Sound обрезано до ~31 символа, а у OpenAL длиннее и с префиксом, поэтому сравниваем по началу. */
+    private static boolean sameDevice(String mixer, String openal) {
+        String m = mixer.toLowerCase(Locale.ROOT).trim();
+        String o = openal.toLowerCase(Locale.ROOT).replaceFirst("^openal soft on ", "").trim();
+        if (m.length() < 8 || o.length() < 8) return false;
+        return m.equals(o) || o.startsWith(m) || m.startsWith(o);
     }
 
     private static SourceDataLine tryOpen(Mixer.Info mi, DataLine.Info info, AudioFormat f, int buf) {

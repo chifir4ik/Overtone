@@ -222,6 +222,36 @@ public final class PlayerController {
         yandex.submitToken(text).whenComplete((v, e) -> status = e == null ? "" : T.get("status.login_failed", msg(e)));
     }
 
+    /** Код для входа в Яндекс, пока его ждут; null — вход по коду не идёт. */
+    public volatile YandexMusicProvider.DeviceCode yandexCode;
+
+    public void loginYandexByCode() {
+        status = T.get("status.code_getting");
+        yandex.loginWithCode(code -> {
+            yandexCode = code;
+            status = "";
+            copyToClipboard(code.userCode());
+            dev.musicplayer.util.Browser.open(code.url());
+        }).whenComplete((v, e) -> {
+            yandexCode = null;
+            if (e == null) { status = ""; return; }
+            if (e instanceof java.util.concurrent.CancellationException || e.getCause() instanceof java.util.concurrent.CancellationException) return;
+            status = T.get("status.login_failed", msg(e));
+        });
+    }
+
+    public void cancelYandexCode() {
+        yandex.cancelCodeLogin();
+        yandexCode = null;
+        status = "";
+    }
+
+    /** Буфер обмена трогаем только из потока игры, иначе GLFW падает. */
+    public static void copyToClipboard(String text) {
+        net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+        mc.execute(() -> mc.keyboardHandler.setClipboard(text));
+    }
+
     public void linkSoundCloud(String text) {
         status = T.get("status.checking_token");
         soundcloud.link(text).whenComplete((v, e) -> status = e == null ? "" : T.get("status.login_failed", msg(e)));
@@ -244,6 +274,13 @@ public final class PlayerController {
 
     public synchronized void logout() {
         MusicProvider p = active();
+        if (p == soundcloud) {
+            // SoundCloud играет и без аккаунта: отвязываем профиль, музыку не трогаем
+            soundcloud.logout();
+            status = "";
+            persist();
+            return;
+        }
         if (p == null || !p.platform().needsLogin) return;
         boolean playingHere = current != null && provider(current) == p;
         p.logout();
@@ -398,7 +435,11 @@ public final class PlayerController {
         status = T.get("status.loading_track");
         MusicProvider p = provider(t);
         for (MusicProvider other : providers.values()) if (other != p) other.stop();
-        p.play(t).whenComplete((v, e) -> { if (current == t) status = e == null ? "" : T.get("status.play_failed", msg(e)); });
+        p.play(t).whenComplete((v, e) -> {
+            if (current != t) return;
+            if (e != null) status = T.get("status.play_failed", msg(e));
+            else status = SoundCloudProvider.isPreviewOnly(t.id()) && p == soundcloud ? T.get("status.sc_preview") : "";
+        });
         refreshPrefetch();
         fetchLyrics(t, p, 0);
     }
@@ -469,6 +510,13 @@ public final class PlayerController {
         if (shuffle && !history.isEmpty()) index = history.pop();
         else index = (index - 1 + q.size()) % q.size();
         playTrack(q.get(index));
+    }
+
+    /** После смены устройства вывода: трек продолжается с того же места на новом устройстве. */
+    public void reopenAudio() {
+        if (current == null || idle) return;
+        MusicProvider p = engine();
+        p.seek(p.positionMs());
     }
 
     public void togglePause() {
@@ -604,6 +652,14 @@ public final class PlayerController {
         return out.isEmpty() ? in : out;
     }
 
+    private List<String> waveHistoryIds() {
+        List<String> ids = new ArrayList<>(waveSeen);
+        ids = ids.subList(Math.max(0, ids.size() - 10), ids.size());
+        ids = new ArrayList<>(ids);
+        for (Track t : waveQueue) if (t.id() != null && !ids.contains(t.id())) ids.add(t.id());
+        return ids;
+    }
+
     private void playWaveTrack(Track t) {
         if (t.id() != null) {
             waveSeen.add(t.id());
@@ -619,7 +675,7 @@ public final class PlayerController {
         waveFetching = true;
         String sid = waveSession;
         Track last = waveQueue.isEmpty() ? justStarted : waveQueue.get(waveQueue.size() - 1);
-        yandex.waveMore(sid, waveSeed, last.id()).whenComplete((b, e) -> {
+        yandex.waveMore(sid, waveSeed, waveHistoryIds()).whenComplete((b, e) -> {
             waveFetching = false;
             if (e != null) { status = T.get("status.wave_no_answer", msg(e)); waveStalled = false; idle = true; return; }
             if (!waveActive || !sid.equals(waveSession)) return;
@@ -647,8 +703,7 @@ public final class PlayerController {
         waveFetching = true;
         waveLoading = true;
         String sid = waveSession;
-        Track last = prev;
-        yandex.waveMore(sid, waveSeed, last == null ? "" : last.id()).whenComplete((b, e) -> {
+        yandex.waveMore(sid, waveSeed, waveHistoryIds()).whenComplete((b, e) -> {
             waveFetching = false;
             waveLoading = false;
             if (e != null) { status = T.get("status.wave_no_answer", msg(e)); idle = true; return; }
