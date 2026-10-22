@@ -55,7 +55,7 @@ public final class PlayerConfig {
      */
     public boolean useGameVolume = false;
 
-    /** Имя устройства вывода Java Sound. Пусто — системное по умолчанию (оно не всегда совпадает с тем, что выбрано в Minecraft). */
+    /** Имя устройства вывода OpenAL. Пусто — то же устройство, что выбрано в настройках звука Minecraft. */
     public String audioDevice = "";
     public boolean duckWhenInactive = false;
 
@@ -65,7 +65,10 @@ public final class PlayerConfig {
      */
     public int keysVersion;
 
-    /** Версия схемы настроек: 0 — файл от старых версий (там «Учитывать громкость игры» было включено по умолчанию). */
+    /**
+     * Версия схемы настроек: 0 — файл от старых версий (там «Учитывать громкость игры» было включено по умолчанию);
+     * 2 — сброшены имена устройств Java Sound/ALSA, теперь устройство выбирается через OpenAL.
+     */
     public int settingsVersion;
     public Map<String, Integer> keys = new LinkedHashMap<>();
 
@@ -107,6 +110,10 @@ public final class PlayerConfig {
         if (settingsVersion < 1) {            // одноразовый перенос: старое значение по умолчанию (true) больше не навязываем
             useGameVolume = false;
             settingsVersion = 1;
+        }
+        if (settingsVersion < 2) {            // старые имена Java Sound/ALSA не подходят для OpenAL
+            audioDevice = "";
+            settingsVersion = 2;
         }
         if (keys == null) keys = new LinkedHashMap<>();
         windowScale = Math.max(70, Math.min(150, windowScale));
