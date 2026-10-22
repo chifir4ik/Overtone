@@ -1,3 +1,0 @@
-Vendored from JAADec (https://github.com/DV8FromTheWorld/JAADec), a fork of JAAD (https://sourceforge.net/projects/jaadec/).
-Public domain. Only the net.sourceforge.jaad.aac package is included (AAC-LC / HE-AAC decoder).
-Local changes: Decoder no longer installs a console log handler; ICStream PNS noise generator fixed (randomState = randomState*1664525 + 1013904223, was a multiply-by-sum bug that produced NaN) and guarded against zero energy.

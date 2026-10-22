@@ -1,0 +1,52 @@
+// Общая настройка цели: исходники, Java, имя файла. Параметры цели лежат в targets.json.
+apply plugin: 'java'
+
+def t = new groovy.json.JsonSlurper().parse(rootProject.file('targets.json')).find { it.name == project.name }
+ext.target = t
+
+group = 'dev.musicplayer'
+version = "${mod_version}-mc${t.label}-${t.loader}"
+base.archivesName = 'overtone'
+
+repositories {
+    mavenCentral()
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(t.java)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = t.java
+}
+
+sourceSets.main {
+    java.srcDirs = [
+        'src/common/java',
+        "src/compat/${t.gen}/java",
+        "src/game/${t.game}/java",
+        "src/${t.loader}/${t.gen}/java",
+    ].collect { rootProject.file(it) }
+    resources.srcDirs = [
+        'src/common/resources',
+        "src/${t.loader}/resources",
+    ].collect { rootProject.file(it) }
+}
+
+// Лицензии должны идти вместе с бинарником (MIT SpotifyMusicMod — обязательно)
+tasks.named('jar') {
+    from(rootProject.file('LICENSE'))
+    from(rootProject.file('THIRD_PARTY_NOTICES.txt'))
+    from(rootProject.file('LICENSE-SpotifyMusicMod.txt'))
+    from(rootProject.file('LICENSE-jlayer.txt'))
+}
+
+// Готовый jar копируется в dist/ рядом с остальными версиями.
+ext.registerDist = { Object jarTask ->
+    def copy = tasks.register('copyToDist', Copy) {
+        from(jarTask)
+        into rootProject.layout.projectDirectory.dir('dist')
+    }
+    tasks.named('build') { finalizedBy copy }
+}

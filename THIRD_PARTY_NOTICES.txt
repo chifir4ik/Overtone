@@ -8,13 +8,15 @@ Third-party components used by Overtone
    (render layer, cover loading) and as a design reference.
    Overtone itself is also MIT (see LICENSE); keep both copyright notices.
 
-2) JLayer 1.0.1.4 (com.googlecode.soundlibs:jlayer) — MP3 decoder
-   License: LGPL. Bundled unmodified as a separate nested jar
-   (Fabric "include"), so it can be replaced by the user.
+2) JLayer (umjammer fork 1.0.6) — MP3 decoder
+   License: LGPL 2.1 (see LICENSE-jlayer.txt). Embedded in the mod, with
+   sources in src/common/java/dev/musicplayer/jlayer (package relocated from
+   javazoom.jl.decoder so it cannot clash with other mods that ship their own
+   JLayer). Only the decoder package is included, otherwise unmodified.
    Project: https://github.com/umjammer/jlayer
    The full LGPL text applies to this library: https://www.gnu.org/licenses/lgpl-2.1.html
 
 
-JAADec / JAAD (net.sourceforge.jaad.aac, встроен в мод)
+JAADec / JAAD (dev.musicplayer.libs.jaad, перенесён из net.sourceforge.jaad, встроен в мод)
   https://github.com/DV8FromTheWorld/JAADec — public domain.
-  Декодер AAC. Локальные правки описаны в src/main/java/net/sourceforge/jaad/NOTICE.txt.
+  Декодер AAC. Локальные правки описаны в src/common/java/dev/musicplayer/libs/jaad/NOTICE.txt.

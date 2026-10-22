@@ -1,0 +1,22 @@
+def t = project.target
+def remap = t.remap
+
+dependencies {
+    minecraft "com.mojang:minecraft:${t.mc}"
+    if (remap) {
+        mappings loom.officialMojangMappings()
+        modImplementation "net.fabricmc:fabric-loader:${loader_version}"
+        modImplementation "net.fabricmc.fabric-api:fabric-api:${t.fapi}"
+    } else {
+        implementation "net.fabricmc:fabric-loader:${loader_version}"
+        implementation "net.fabricmc.fabric-api:fabric-api:${t.fapi}"
+    }
+}
+
+processResources {
+    def props = [version: mod_version, minecraft_range: t.range, java: t.java.toString()]
+    inputs.properties props
+    filesMatching('fabric.mod.json') { expand props }
+}
+
+registerDist(remap ? tasks.named('remapJar') : tasks.named('jar'))

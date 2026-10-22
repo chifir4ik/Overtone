@@ -1,0 +1,25 @@
+def t = project.target
+
+neoForge {
+    version = t.neo
+    mods {
+        musicplayer {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+
+processResources {
+    def props = [version: mod_version, minecraft_range: t.range, neo_range: t.nver]
+    inputs.properties props
+    filesMatching('META-INF/neoforge.mods.toml') { expand props }
+    // modLoader/loaderVersion нужны только в метаданных для 1.21.1–1.21.4
+    if (!t.nloader) {
+        filesMatching('META-INF/neoforge.mods.toml') {
+            filter { line -> line.startsWith('modLoader=') || line.startsWith('loaderVersion=') ? null : line }
+        }
+    }
+}
+
+registerDist(tasks.named('jar'))

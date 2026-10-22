@@ -1,7 +1,19 @@
 pluginManagement {
     repositories {
-        maven { url = 'https://maven.fabricmc.net/' }
+        maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
         mavenCentral()
         gradlePluginPortal()
     }
+}
+
+plugins {
+    // Сам скачает нужный JDK (21 для 1.21.x, 25 для 26.x), если его нет в системе.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'overtone'
+
+new groovy.json.JsonSlurper().parse(file('targets.json')).each { t ->
+    include(":${t.name}")
+    project(":${t.name}").projectDir = file("targets/${t.name}")
 }

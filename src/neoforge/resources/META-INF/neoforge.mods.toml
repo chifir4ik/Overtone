@@ -1,0 +1,28 @@
+modLoader="javafml"
+loaderVersion="[1,)"
+license="MIT"
+
+[[mods]]
+modId="musicplayer"
+version="${version}"
+displayName="Overtone"
+logoFile="assets/musicplayer/icon.png"
+authors="chifir4ik, PabJlo"
+credits="Design based on SpotifyMusicMod by Kart-Modding (MIT): https://github.com/Kart-Modding/SpotifyMusicMod"
+description='''
+Music in Minecraft: Yandex Music, SoundCloud and your own files, karaoke lyrics, flying words in the world and a pretty Now Playing HUD. Works from the main menu too. English, Russian, Japanese.
+'''
+
+[[dependencies.musicplayer]]
+modId="neoforge"
+type="required"
+versionRange="${neo_range}"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.musicplayer]]
+modId="minecraft"
+type="required"
+versionRange="${minecraft_range}"
+ordering="NONE"
+side="CLIENT"
