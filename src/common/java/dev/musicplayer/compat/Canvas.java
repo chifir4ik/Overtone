@@ -41,6 +41,8 @@ public abstract class Canvas {
     public abstract void text(Font font, String value, int x, int y, int argb, boolean shadow);
     public abstract void text(Font font, FormattedCharSequence value, int x, int y, int argb);
     public abstract void texture(Tex texture, int x, int y, int width, int height, int textureSize, float alpha);
+    /** Кусок квадратной текстуры (u, v, uw×vh текселей), растянутый на w×h и окрашенный argb. */
+    public abstract void blit(Tex texture, int x, int y, int w, int h, int u, int v, int uw, int vh, int textureSize, int argb);
 
     public abstract void pushMatrix();
     public abstract void translate(float x, float y);

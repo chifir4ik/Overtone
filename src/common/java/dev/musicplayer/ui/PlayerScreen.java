@@ -21,6 +21,7 @@ import dev.musicplayer.model.Platform;
 import dev.musicplayer.model.Track;
 import dev.musicplayer.provider.MusicProvider;
 import dev.musicplayer.provider.YandexMusicProvider;
+import dev.musicplayer.lyrics.TrackLyrics;
 import dev.musicplayer.util.Browser;
 import dev.musicplayer.util.T;
 import net.minecraft.client.Minecraft;
@@ -436,6 +437,10 @@ public class PlayerScreen extends ModScreen {
         cy = py + ph - 24;
         lyTop = py + 30 + Math.max(coverPx, 44) + 10;
         lyBottom = by - 12;
+        if (pc.showLyrics) {
+            lyBottom = by - 32;
+            buildLyricsRow(by - 26);
+        }
 
         Btn seek = btn(Kind.BAR, rx, by - 6, rw, 14, "", Icon.NONE, mx -> {
             Track t = ctl.current;
@@ -710,7 +715,7 @@ public class PlayerScreen extends ModScreen {
 
         float shown = Math.min(1f, (System.nanoTime() - builtAt) / 180_000_000f);
         if (!transitioning() && shown < 1f && built != Mode.PICKER)
-            PlayerTheme.rrect(g, px, py + 26, pw, ph - 26, r, PlayerTheme.argb(th.panelBottom, Math.round(200 * (1f - shown) * (1f - shown))));
+            PlayerTheme.rrect(g, px, py + 26, pw, ph - 26, r, PlayerTheme.argb(th.panelTop, Math.round(200 * (1f - shown) * (1f - shown))));
     }
 
     private float smooth(float current, boolean on) {
@@ -900,11 +905,12 @@ public class PlayerScreen extends ModScreen {
         if (showBadge) {
             String bl = T.get("player.wave");
             int bw = font.width(bl) + 14;
-            drawWaveGradient(g, textX + slide, nextY + 3, bw, 11, 5, aa, secs * 0.35);
+            Shapes.fill(g, textX + slide, nextY + 3, bw, 11, 3, PlayerTheme.argb(wavePaletteAt(secs * 0.35 * WAVE_PALETTE.length), aa));
             g.text(font, bl, textX + slide + 7, nextY + 5, PlayerTheme.argb(0xFFFFFF, aa));
         }
 
         if (pc.showLyrics && lyBottom - lyTop > 24) renderLyrics(g);
+        if (pc.showLyrics) drawShiftLabel(g);
 
         drawProgress(g, t);
     }
@@ -1077,7 +1083,7 @@ public class PlayerScreen extends ModScreen {
         switch (b.kind) {
             case PRIMARY -> {
                 int bg = !enabled ? th.trackBg : blend(th.accent, th.accentHover, b.glow);
-                PlayerTheme.rrect(g, b.x, b.y + 1, b.w, b.h, br, 0x44000000);
+                Shapes.shadow(g, b.x, b.y, b.w, b.h, br, 1, 0xFF000000 | PlayerTheme.mix(enabled ? th.accentRgb : 0x24242A, 0x000000, 0.45f));
                 PlayerTheme.rrect(g, b.x, b.y, b.w, b.h, br, bg);
                 center(g, b.label, cxB, b.y + (b.h - font.lineHeight) / 2 + 1, PlayerTheme.TEXT_MAIN);
             }
@@ -1107,7 +1113,7 @@ public class PlayerScreen extends ModScreen {
                 boolean big = b.kind == Kind.CIRCLE_BIG;
                 int r = b.w / 2;
                 int bg = big ? (!enabled ? th.trackBg : blend(th.accent, th.accentHover, b.glow)) : blend(th.trackBg, th.hover, b.glow);
-                if (big) PlayerTheme.circle(g, cxB, cyB + 1, r, 0x44000000);
+                if (big) Shapes.shadow(g, cxB - r, cyB - r, r * 2, r * 2, 3, 2, 0xFF000000 | PlayerTheme.mix(th.accentRgb, 0x000000, 0.45f));
                 PlayerTheme.circle(g, cxB, cyB, r, bg);
                 int fg = big || hov ? PlayerTheme.TEXT_MAIN : (enabled ? PlayerTheme.TEXT_MID : PlayerTheme.TEXT_DIM);
                 drawIcon(g, b.icon, cxB, cyB, fg);
@@ -1208,32 +1214,16 @@ public class PlayerScreen extends ModScreen {
         return PlayerTheme.mix(WAVE_PALETTE[i], WAVE_PALETTE[(i + 1) % n], (float) (t - i));
     }
 
-    private void drawWaveGradient(Canvas g, int x, int y, int w, int h, int r, int alpha, double phase) {
-        if (w <= 0 || h <= 0) return;
-        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        for (int col = 0; col < w; col++) {
-            double d = 0;
-            if (col < r) d = r - 0.5 - col; else if (col >= w - r) d = col - (w - r - 0.5);
-            int in = d <= 0 ? 0 : (int) Math.round(r - Math.sqrt(Math.max(0, r * r - d * d)));
-            double t = phase * WAVE_PALETTE.length + col / (double) Math.max(1, w) * 2.2;
-            int shade = (int) Math.round(Math.sin((col / (double) w) * Math.PI) * 18);
-            int rgb = PlayerTheme.mix(wavePaletteAt(t), 0xFFFFFF, shade / 255f * 2f);
-            g.fill(x + col, y + in, x + col + 1, y + h - in, PlayerTheme.argb(rgb, alpha));
-        }
-    }
-
     private void drawWaveButton(Canvas g, Btn b) {
         boolean hov = b.contains(mouseX, mouseY);
         boolean on = ctl.waveActive;
         double secs = System.nanoTime() / 1_000_000_000.0;
         int r = Math.min(th.radius + 3, b.h / 2);
-        if (on || hov) {
-            float pulse = on ? (float) (0.5 + 0.5 * Math.sin(secs * 2.4)) : 0.4f;
-            for (int e = 3; e >= 1; e--)
-                PlayerTheme.rrect(g, b.x - e, b.y - e, b.w + e * 2, b.h + e * 2, r + e,
-                        PlayerTheme.argb(wavePaletteAt(secs * 0.35 * WAVE_PALETTE.length), Math.round((10 + 22 * pulse) / e)));
-        }
-        drawWaveGradient(g, b.x, b.y, b.w, b.h, r, hov ? 255 : 235, secs * 0.18);
+        int waveRgb = wavePaletteAt(secs * 0.18 * WAVE_PALETTE.length);
+        int fillRgb = PlayerTheme.mix(waveRgb, 0x111115, hov ? 0.25f : 0.38f);
+        Shapes.shadow(g, b.x, b.y, b.w, b.h, r, 1, 0xFF000000 | PlayerTheme.mix(fillRgb, 0x000000, 0.45f));
+        Shapes.fill(g, b.x, b.y, b.w, b.h, r, 0xFF000000 | fillRgb);
+        if (on) Shapes.ring(g, b.x, b.y, b.w, b.h, r, PlayerTheme.argb(0xFFFFFF, 60));
 
         boolean playing = on && ctl.engine().isPlaying();
         int bx = b.x + 9, base = b.y + b.h - 6;
@@ -1257,12 +1247,8 @@ public class PlayerScreen extends ModScreen {
     private void drawWaveGlow(Canvas g, int x, int y, int size, double secs) {
         float pulse = (float) (0.5 + 0.5 * Math.sin(secs * 2.0));
         int rgb = wavePaletteAt(secs * 0.5);
-        for (int e = 7; e >= 1; e--) {
-            float spread = e * (0.75f + 0.25f * pulse);
-            int a = Math.round((7 - e + 1) * (2.2f + 2.6f * pulse));
-            int gx = Math.round(spread);
-            PlayerTheme.rrect(g, x - gx, y - gx, size + gx * 2, size + gx * 2, 8 + gx, PlayerTheme.argb(rgb, a));
-        }
+        Shapes.ring(g, x - 2, y - 2, size + 4, size + 4, 3, PlayerTheme.argb(rgb, Math.round(90 + 90 * pulse)));
+        Shapes.ring(g, x - 3, y - 3, size + 6, size + 6, 3, PlayerTheme.argb(rgb, Math.round(30 + 40 * pulse)));
     }
 
     private void drawEqualizer(Canvas g, int x, int y, int h, boolean playing) {
@@ -1298,12 +1284,44 @@ public class PlayerScreen extends ModScreen {
 
     private static String nz(String s) { return s == null ? "" : s; }
 
+    private int shiftLabelX, shiftLabelW, shiftRowY;
+
+    /** Сдвиг текста именно этой песни и свой файл текста для неё. */
+    private void buildLyricsRow(int y) {
+        BooleanSupplier hasTrack = () -> ctl.current != null;
+        shiftRowY = y;
+        shiftLabelW = Math.max(font.width(T.get("player.shift", "+0.0")) + 8, 70);
+        btn(Kind.GHOST, rx, y, 18, 12, "−", Icon.NONE, mx -> TrackLyrics.addShift(ctl.current, -100)).enabled = hasTrack;
+        shiftLabelX = rx + 20;
+        btn(Kind.GHOST, shiftLabelX + shiftLabelW + 2, y, 18, 12, "+", Icon.NONE, mx -> TrackLyrics.addShift(ctl.current, 100)).enabled = hasTrack;
+        Btn reset = btn(Kind.GHOST, shiftLabelX + shiftLabelW + 22, y, 14, 12, "×", Icon.NONE, mx -> TrackLyrics.resetShift(ctl.current));
+        reset.visible = () -> TrackLyrics.shiftMs(ctl.current) != 0;
+
+        String add = T.get("player.lyrics_own"), remove = T.get("player.lyrics_own_remove");
+        int w = Math.max(font.width(add), font.width(remove)) + 14;
+        Btn own = btn(Kind.GHOST, rx + rw - w, y, w, 12, add, Icon.NONE, mx -> ctl.status = T.get("status.lyrics_drop_hint"));
+        own.visible = () -> ctl.current != null && !TrackLyrics.hasCustom(ctl.current);
+        Btn drop = btn(Kind.GHOST, rx + rw - w, y, w, 12, remove, Icon.NONE, mx -> ctl.removeCustomLyrics());
+        drop.visible = () -> TrackLyrics.hasCustom(ctl.current);
+    }
+
+    private void drawShiftLabel(Canvas g) {
+        int ms = TrackLyrics.shiftMs(ctl.current);
+        String v = (ms > 0 ? "+" : "") + String.format(java.util.Locale.ROOT, "%.1f", ms / 1000f);
+        String s = T.get("player.shift", v);
+        g.text(font, s, shiftLabelX + (shiftLabelW - font.width(s)) / 2, shiftRowY + 2, ms == 0 ? PlayerTheme.TEXT_DIM : th.accent);
+    }
+
     private static String fmt(long ms) {
         long s = Math.max(0, ms) / 1000;
         return (s / 60) + ":" + String.format("%02d", s % 60);
     }
 
     public void onFilesDrop(List<Path> files) {
+        if (!files.isEmpty() && ctl.current != null && files.stream().allMatch(TrackLyrics::isLyricsFile)) {
+            ctl.importLyrics(files.get(0));
+            return;
+        }
         if (!ctl.addLocalPaths(files)) return;
         pickerOpen = false;
         addAccountMode = false;

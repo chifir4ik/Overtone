@@ -54,50 +54,17 @@ final class Draw {
     }
 
     static void roundedRect(Canvas c, int x, int y, int w, int h, int r, int color) {
-        if (h <= 0) return;
-        int start = 0, runIn = inset(0, h, r);
-        for (int row = 1; row <= h; row++) {
-            int in = row < h ? inset(row, h, r) : -1;
-            if (in == runIn) continue;
-            c.rect(x + runIn, y + start, w - runIn * 2, row - start, color);
-            start = row; runIn = in;
-        }
+        dev.musicplayer.ui.Shapes.fill(c, x, y, w, h, Math.min(r, 3), color);
     }
 
     static void roundedOutline(Canvas c, int x, int y, int w, int h, int r, int color) {
-        int prev = -1;
-        for (int row = 0; row < h; row++) {
-            int in = inset(row, h, r);
-            if (row == 0 || row == h - 1) {
-                c.rect(x + in, y + row, w - in * 2, 1, color);
-            } else {
-                c.rect(x + in, y + row, 1, 1, color);
-                c.rect(x + w - in - 1, y + row, 1, 1, color);
-                if (prev >= 0 && prev != in) {
-                    c.rect(x + in, y + row, prev - in, 1, color);
-                    c.rect(x + w - prev, y + row, prev - in, 1, color);
-                }
-            }
-            prev = in;
-        }
-    }
-
-    private static int inset(int row, int height, int radius) {
-        if (radius <= 0) return 0;
-        double d = 0;
-        if (row < radius) d = (radius - 0.5) - row;
-        else if (row >= height - radius) d = row - (height - radius - 0.5);
-        if (d <= 0) return 0;
-        double inner = radius * radius - d * d;
-        if (inner <= 0) return radius;
-        return (int) Math.round(radius - Math.sqrt(inner));
+        dev.musicplayer.ui.Shapes.ring(c, x, y, w, h, Math.min(r, 3), color);
     }
 
     static void panel(Canvas c, int x, int y, int w, int h, int opacityPercent, float alpha) {
         int pa = Math.round(255 * (opacityPercent / 100f) * alpha);
-        int r = Math.min(8, h / 3);
-        roundedRect(c, x, y, w, h, r, argb(0x14141A, pa));
-        roundedOutline(c, x, y, w, h, r, argb(0x3A3B44, Math.round(pa * 0.8f)));
+        roundedRect(c, x, y, w, h, 2, argb(0x111115, pa));
+        roundedOutline(c, x, y, w, h, 2, argb(0xFFFFFF, Math.round(pa * 0.12f)));
     }
 
     static void progress(Canvas c, int x, int y, int w, int h, double fraction, int accentRgb, float alpha) {

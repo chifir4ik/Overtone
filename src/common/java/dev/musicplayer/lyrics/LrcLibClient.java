@@ -16,6 +16,7 @@ import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -28,7 +29,7 @@ import java.util.concurrent.CompletableFuture;
  * раньше один обрыв через VPN выключал источник на 5 минут.
  */
 public final class LrcLibClient {
-    private static final SafeHttp HTTP = new SafeHttp(Set.of("lrclib.net"), Duration.ofSeconds(9));
+    private static final SafeHttp HTTP = new SafeHttp(Set.of("lrclib.net"), Duration.ofSeconds(6));
     private static final Map<String, String> HEADERS = Map.of(
             "User-Agent", "Overtone (Minecraft mod)",
             "Accept", "application/json");
@@ -45,82 +46,92 @@ public final class LrcLibClient {
 
     private static boolean paused() { return System.currentTimeMillis() < pausedUntil; }
 
-    /** Не бросает исключений; пустой список — ничего подходящего не нашлось. */
+    /** Пустой список — LRCLIB ответил, что подходящего нет. Ошибка — не ответил или трек уже пролистали. */
     public static CompletableFuture<List<LyricLine>> fetch(Track t) {
-        return LyricsIo.run(() -> lookup(t));
+        return LyricsIo.attempt(() -> lookup(t));
     }
 
-    private static List<LyricLine> lookup(Track t) throws InterruptedException {
+    /**
+     * LRCLIB режет частые запросы (503), поэтому их немного: поиск по названию с исполнителем и по одному названию.
+     * Раньше их было до двадцати на трек, и при быстром листании он отключал нас совсем. Точный /api/get не зовём:
+     * не найдя песню у себя, он идёт искать её по внешним сервисам и висит по 10-20 секунд.
+     */
+    private static List<LyricLine> lookup(Track t) throws IOException, InterruptedException {
         List<Query> queries = TrackMatch.queries(t);
-        Query main = queries.get(0);
-        String clean = TrackMatch.cleanTitle(main.title());
-        String artist = TrackMatch.firstArtist(main.artist());
-
-        List<LyricLine> l = exact(t, main.title(), main.artist(), t.album());
-        if (l.isEmpty()) l = exact(t, clean, artist, null);
-        if (!l.isEmpty()) return l;
+        String clean = TrackMatch.cleanTitle(queries.get(0).title());
+        IOException failed = null;
 
         Set<String> searches = new LinkedHashSet<>();
-        for (Query q : queries) {
-            String title = TrackMatch.cleanTitle(q.title()), by = TrackMatch.firstArtist(q.artist());
-            searches.add("track_name=" + enc(q.title()) + "&artist_name=" + enc(q.artist()));
-            searches.add("track_name=" + enc(title) + "&artist_name=" + enc(by));
-            searches.add("q=" + enc(title + " " + by));
-        }
+        for (Query q : queries) searches.add("q=" + enc(TrackMatch.cleanTitle(q.title()) + " " + TrackMatch.firstArtist(q.artist())));
         // исполнитель в базе мог быть записан иначе: ищем по одному названию, а совпадение решает сверка
         searches.add("track_name=" + enc(clean));
 
         List<LyricLine> plainFallback = List.of();
+        long deadline = System.currentTimeMillis() + BUDGET_MS;
         for (String q : searches) {
-            l = search(t, q);
+            // LRCLIB висит: остальные запросы тоже повиснут, а плеер всё это время показывает «ищу текст»
+            if (failed != null && System.currentTimeMillis() > deadline) break;
+            List<LyricLine> l;
+            try {
+                l = search(t, q);
+            } catch (Unreachable e) {
+                // один запрос упал — следующий может пройти; сдаёмся только если пролистали или LRCLIB на паузе
+                if (e.fatal) throw e;
+                failed = e;
+                continue;
+            }
             if (l.isEmpty()) continue;
             if (l.get(0).timeMs() != LyricLine.UNSYNCED) return l;
             if (plainFallback.isEmpty()) plainFallback = l;
         }
+        if (plainFallback.isEmpty() && failed != null) throw failed;
         return plainFallback;
     }
 
-    /** null — не нашлось или сеть не ответила. */
-    private static String get(String url) throws InterruptedException {
-        if (paused()) return null;
-        for (int attempt = 0; attempt < 2; attempt++) {
+    private static final class Unreachable extends IOException {
+        final boolean fatal;
+
+        Unreachable(String message, boolean fatal) {
+            super(message);
+            this.fatal = fatal;
+        }
+    }
+
+    /** LRCLIB под нагрузкой отвечает 503 через раз, и второй-третий запрос обычно проходит. */
+    private static final long[] RETRY_MS = {600, 1200};
+    /** Повторяем только быстрый отказ: если сервер молчит до таймаута, повтор лишь удвоит ожидание. */
+    private static final long QUICK_FAIL_MS = 2500;
+    private static final long BUDGET_MS = 12_000;
+
+    /** null — такого нет (404). Сбой сети, пауза или пролистанный трек — исключение. */
+    private static String get(String url, Track t) throws IOException, InterruptedException {
+        for (int attempt = 0; ; attempt++) {
+            if (!LyricsService.wanted(t)) throw new Unreachable("track skipped", true);
+            if (paused()) throw new Unreachable("LRCLIB paused", true);
+            long sent = System.currentTimeMillis();
             try {
                 SafeHttp.Reply r = HTTP.send("GET", url, HEADERS);
                 if (r.status() == 429 || r.status() >= 500) throw new IOException("HTTP " + r.status());
                 failsInRow = 0;
                 return r.status() == 200 ? r.body() : null;
             } catch (IOException e) {
-                if (attempt == 0) { Thread.sleep(700); continue; }
+                if (attempt < RETRY_MS.length && System.currentTimeMillis() - sent < QUICK_FAIL_MS) {
+                    Thread.sleep(RETRY_MS[attempt]);
+                    continue;
+                }
                 if (++failsInRow >= FAILS_BEFORE_PAUSE) {
                     failsInRow = 0;
                     pausedUntil = System.currentTimeMillis() + PAUSE_MS;
                     MusicPlayerMod.LOGGER.warn("LRCLIB unavailable ({}), lookups paused for {} s", e.getMessage(), PAUSE_MS / 1000);
                 }
-                return null;
+                throw new Unreachable(e.getMessage(), false);
             }
-        }
-        return null;
-    }
-
-    private static List<LyricLine> exact(Track t, String title, String artist, String album) throws InterruptedException {
-        String url = "https://lrclib.net/api/get"
-                + "?track_name=" + enc(title)
-                + "&artist_name=" + enc(artist)
-                + (album != null ? "&album_name=" + enc(album) : "")
-                + (t.durationMs() > 0 ? "&duration=" + Math.round(t.durationMs() / 1000.0) : "");
-        String body = get(url);
-        if (body == null) return List.of();
-        try {
-            Candidate c = candidate(JsonParser.parseString(body).getAsJsonObject(), t);
-            return c == null ? List.of() : c.lines;
-        } catch (JsonParseException | IllegalStateException e) {
-            return List.of();
         }
     }
 
     /** Из результатов поиска берём лучший из прошедших проверку: синхронизированный важнее, затем ближе по длительности. */
-    private static List<LyricLine> search(Track t, String query) throws InterruptedException {
-        String body = get("https://lrclib.net/api/search?" + query);
+    private static List<LyricLine> search(Track t, String query) throws IOException, InterruptedException {
+        String body = get("https://lrclib.net/api/search?" + query, t);
         if (body == null) return List.of();
         try {
             JsonArray arr = JsonParser.parseString(body).getAsJsonArray();
@@ -148,9 +159,12 @@ public final class LrcLibClient {
         Level level = TrackMatch.level(str(o, "trackName"), str(o, "artistName"), t);
         if (level == Level.NONE) return null;
 
-        double diff = TrackMatch.durationDiff(o.has("duration") && !o.get("duration").isJsonNull() ? o.get("duration").getAsDouble() : 0, t);
+        double seconds = o.has("duration") && !o.get("duration").isJsonNull() ? o.get("duration").getAsDouble() : 0;
+        double diff = TrackMatch.durationDiff(seconds, t);
 
         List<LyricLine> synced = hasText(o, "syncedLyrics") ? LrcParser.parse(o.get("syncedLyrics").getAsString()) : List.of();
+        int tempo = TrackMatch.tempo(t.title());
+        if (tempo != 0 && TrackMatch.tempo(str(o, "trackName")) == 0) return stretched(o, t, tempo, seconds, synced);
         if (!synced.isEmpty() && TrackMatch.durationFits(diff, MAX_DIFF_SYNCED, level) && TrackMatch.scriptOk(t.title(), synced))
             return new Candidate(synced, true, diff);
 
@@ -159,6 +173,32 @@ public final class LrcLibClient {
         if (!plain.isEmpty() && TrackMatch.durationFits(diff, MAX_DIFF_PLAIN, level) && TrackMatch.scriptOk(t.title(), plain))
             return new Candidate(plain, false, diff);
         return null;
+    }
+
+    /**
+     * Для slowed / sped up текста своей версии почти никогда нет, но замедляют всю песню равномерно:
+     * тайминги оригинала растягиваются по отношению длительностей и ложатся на замедленный трек.
+     */
+    private static Candidate stretched(JsonObject o, Track t, int tempo, double seconds, List<LyricLine> synced) {
+        if (seconds <= 0 || t.durationMs() <= 0) return null;
+        double ratio = t.durationMs() / (seconds * 1000);
+        // заодно отсекает чужую песню с тем же названием: длина должна измениться в ту сторону, что и темп
+        if (tempo < 0 ? ratio < 1.04 || ratio > 1.6 : ratio < 0.6 || ratio > 0.96) return null;
+        double typical = tempo < 0 ? 1.2 : 0.8;
+        if (!synced.isEmpty() && TrackMatch.scriptOk(t.title(), synced)) {
+            List<LyricLine> out = new ArrayList<>(synced.size());
+            for (LyricLine l : synced) {
+                List<LyricLine.Word> words = null;
+                if (l.hasWordTimings()) {
+                    words = new ArrayList<>(l.words().size());
+                    for (LyricLine.Word w : l.words()) words.add(new LyricLine.Word(Math.round(w.timeMs() * ratio), w.text()));
+                }
+                out.add(new LyricLine(l.timeMs() == LyricLine.UNSYNCED ? l.timeMs() : Math.round(l.timeMs() * ratio), l.text(), words));
+            }
+            return new Candidate(out, true, Math.abs(ratio - typical));
+        }
+        List<LyricLine> plain = hasText(o, "plainLyrics") ? LrcParser.plain(o.get("plainLyrics").getAsString()) : List.of();
+        return plain.isEmpty() || !TrackMatch.scriptOk(t.title(), plain) ? null : new Candidate(plain, false, Math.abs(ratio - typical));
     }
 
     private static String str(JsonObject o, String k) {

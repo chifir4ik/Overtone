@@ -444,6 +444,29 @@ public final class PlayerController {
         fetchLyrics(t, p, 0);
     }
 
+    /** Файл .lrc / .ttml / .txt становится текстом играющей песни. */
+    public void importLyrics(Path file) {
+        Track t = current;
+        if (t == null) { status = T.get("status.lyrics_need_track"); return; }
+        try {
+            lyrics = dev.musicplayer.lyrics.TrackLyrics.importFile(t, file);
+            lyricsLoading = false;
+            status = T.get("status.lyrics_saved");
+        } catch (java.io.IOException e) {
+            status = T.get("status.lyrics_bad_file", msg(e));
+        }
+    }
+
+    public void removeCustomLyrics() {
+        Track t = current;
+        if (t == null) return;
+        dev.musicplayer.lyrics.TrackLyrics.removeCustom(t);
+        lyrics = List.of();
+        lyricsLoading = true;
+        status = T.get("status.lyrics_removed");
+        fetchLyrics(t, provider(t), 0);
+    }
+
     /** Текст часто не находится из-за сбоя сети или VPN, поэтому ищем ещё несколько раз. */
     private static final long[] LYRICS_RETRY_MS = {6_000, 20_000, 60_000};
     private static final java.util.concurrent.ScheduledExecutorService LYRICS_RETRY =
@@ -791,6 +814,7 @@ public final class PlayerController {
                 if (repeat == Repeat.ALL) for (int k = 0; k < Math.min(n, 40); k++) keep.add(q.get(k).id());
             }
         }
+        if (!ahead.isEmpty()) dev.musicplayer.lyrics.LyricsService.prefetch(ahead.get(0), provider(ahead.get(0)));
         MusicProvider owner = provider(cur);
         ahead.removeIf(t -> provider(t) != owner);   // очередь может быть смешанной, а качать наперёд умеет не каждая площадка
         owner.setPrefetch(cur.id(), ahead, keep);

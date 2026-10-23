@@ -14,8 +14,8 @@ import net.minecraft.client.gui.Font;
  * Иконки рисуются прямоугольниками — не зависят от шрифта и версии игры.
  */
 final class PlayerTheme {
-    final int accent, accentHover, accentSoft;
-    final int panelTop, panelBottom, panel2, fieldBg, trackBg, hover, rowCurrent, border, dim;
+    final int accent, accentHover;
+    final int panelTop, panel2, fieldBg, trackBg, hover, rowCurrent, border, dim;
     final int radius;
     final int accentRgb;
     private final long key;
@@ -27,40 +27,47 @@ final class PlayerTheme {
 
     private static PlayerTheme cached;
 
+    /**
+     * Почти чёрные полупрозрачные панели, как подсказки и меню самой игры, рамка в пиксель и скругление
+     * ступенькой. Акцент только там, где он что-то значит.
+     */
     private PlayerTheme(PlayerConfig pc, long key) {
         this.key = key;
         accentRgb = pc.accentRgb() & 0xFFFFFF;
         int bg = Math.round(pc.windowOpacity * 2.55f);
         float k = pc.tint * 0.05f;
         accent = 0xFF000000 | accentRgb;
-        accentHover = 0xFF000000 | mix(accentRgb, 0xFFFFFF, 0.2f);
-        accentSoft = argb(accentRgb, 70);
-        panelTop = argb(mix(0x1C1D27, accentRgb, k), bg);
-        panelBottom = argb(mix(0x101117, accentRgb, k * 0.6f), bg);
-        panel2 = argb(mix(0x0F1015, accentRgb, k * 0.5f), bg);
-        fieldBg = 0xFF000000 | mix(0x0B0C10, accentRgb, k * 0.4f);
-        trackBg = 0xFF000000 | mix(0x2C2D39, accentRgb, k * 0.8f);
-        hover = 0xFF000000 | mix(0x2C2D39, accentRgb, k * 0.8f + 0.14f);
-        rowCurrent = 0xFF000000 | mix(0x0F1015, accentRgb, 0.22f);
-        border = argb(accentRgb, 110);
+        accentHover = 0xFF000000 | mix(accentRgb, 0xFFFFFF, 0.15f);
+        panelTop = argb(mix(0x111115, accentRgb, k * 0.6f), Math.round(bg * 0.94f));
+        // список треков, текст песни и боковые вкладки — углубления темнее самого окна, а не светлые плашки
+        panel2 = argb(mix(0x08080A, accentRgb, k * 0.4f), Math.min(255, bg));
+        fieldBg = 0xFF000000 | mix(0x09090C, accentRgb, k * 0.3f);
+        trackBg = 0xFF000000 | mix(0x24242A, accentRgb, k * 0.5f);
+        hover = 0xFF000000 | mix(0x303038, accentRgb, k * 0.5f + 0.08f);
+        rowCurrent = 0xFF000000 | mix(0x1A1A20, accentRgb, 0.3f);
+        border = argb(0xFFFFFF, 30);
         dim = argb(0x000000, Math.round(pc.dim * 2.55f));
-        radius = pc.cornerRadius;
+        radius = (pc.cornerRadius + 1) / 2;
     }
 
     /** Тема пересобирается только при смене настроек, а не каждый кадр. */
     static PlayerTheme current() {
         PlayerConfig pc = PlayerConfig.get();
         long key = (pc.accentRgb() & 0xFFFFFFL) | (long) pc.tint << 24 | (long) pc.dim << 26
-                | (long) pc.cornerRadius << 33 | (long) pc.windowOpacity << 37;
+                | (long) pc.cornerRadius << 33 | (long) pc.windowOpacity << 38;
         if (cached == null || cached.key != key) cached = new PlayerTheme(pc, key);
         return cached;
     }
 
-    /** Рамка, градиентный фон и акцентная полоска сверху: общий вид всех окон мода. */
+    /** Мелкие элементы скругляются не сильнее окна, но хотя бы на 3 px, иначе они выглядят острыми. */
+    private static int small(int r) { return Math.min(r, Math.max(3, current().radius)); }
+
     void window(Canvas g, int x, int y, int w, int h) {
-        ring(g, x - 1, y - 1, w + 2, h + 2, radius + 1, border);
-        rrectV(g, x, y, w, h, radius, panelTop, panelBottom);
-        g.fill(x + radius, y, x + w - radius, y + 2, accent);
+        Shapes.shadow(g, x + 2, y, w, h, radius, 3, argb(0x000000, (panelTop >>> 24) / 3));
+        Shapes.fill(g, x, y, w, h, radius, panelTop);
+        Shapes.ring(g, x, y, w, h, radius, border);
+        // светлая линия по верхнему краю: панель читается как объёмная, как кнопки самой игры
+        g.fill(x + radius + 1, y + 1, x + w - radius - 1, y + 2, argb(0xFFFFFF, 14));
     }
 
     static int argb(int rgb, int alpha) {
@@ -75,86 +82,18 @@ final class PlayerTheme {
         return (r << 16) | (g << 8) | b;
     }
 
-    private static int inset(int row, int h, int r) {
-        if (r <= 0) return 0;
-        double d = 0;
-        if (row < r) d = (r - 0.5) - row;
-        else if (row >= h - r) d = row - (h - r - 0.5);
-        if (d <= 0) return 0;
-        double inner = (double) r * r - d * d;
-        if (inner <= 0) return r;
-        return (int) Math.round(r - Math.sqrt(inner));
-    }
-
-    /** Строки с одинаковым скруглением сливаются в один fill: каждый fill в GUI стоит дорого. */
     static void rrect(Canvas g, int x, int y, int w, int h, int r, int color) {
-        if (w <= 0 || h <= 0) return;
-        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        int i = 0;
-        while (i < r) {
-            int in = inset(i, h, r);
-            if (in == 0) break;
-            int j = i + 1;
-            while (j < r && inset(j, h, r) == in) j++;
-            g.fill(x + in, y + i, x + w - in, y + j, color);
-            g.fill(x + in, y + h - j, x + w - in, y + h - i, color);
-            i = j;
-        }
-        g.fill(x, y + i, x + w, y + h - i, color);
+        Shapes.fill(g, x, y, w, h, small(r), color);
     }
 
-    static void rrectV(Canvas g, int x, int y, int w, int h, int r, int top, int bottom) {
-        if (w <= 0 || h <= 0) return;
-        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        int start = 0, runIn = inset(0, h, r), runCol = gradient(top, bottom, 0, h);
-        for (int row = 1; row <= h; row++) {
-            int in = row < h ? inset(row, h, r) : -1;
-            int col = row < h ? gradient(top, bottom, row, h) : 0;
-            if (in == runIn && col == runCol) continue;
-            g.fill(x + runIn, y + start, x + w - runIn, y + row, runCol);
-            start = row; runIn = in; runCol = col;
-        }
-    }
-
-    private static int gradient(int top, int bottom, int row, int h) {
-        float t = h <= 1 ? 0f : row / (float) (h - 1);
-        int a = Math.round((top >>> 24) + ((bottom >>> 24) - (top >>> 24)) * t);
-        return argb(mix(top, bottom, t), a);
-    }
-
-    /** Контур в 1 px по скруглённому прямоугольнику; внутри ничего не закрашивает, поэтому окно может быть прозрачным. */
     static void ring(Canvas g, int x, int y, int w, int h, int r, int color) {
-        if (w <= 0 || h <= 0) return;
-        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        int top = r > 0 ? inset(0, h, r) : 0;
-        g.fill(x + top, y, x + w - top, y + 1, color);
-        g.fill(x + top, y + h - 1, x + w - top, y + h, color);
-        for (int i = 1; i < r; i++) {
-            int in = inset(i, h, r), to = Math.max(in + 1, inset(i - 1, h, r));
-            g.fill(x + in, y + i, x + to, y + i + 1, color);
-            g.fill(x + w - to, y + i, x + w - in, y + i + 1, color);
-            g.fill(x + in, y + h - 1 - i, x + to, y + h - i, color);
-            g.fill(x + w - to, y + h - 1 - i, x + w - in, y + h - i, color);
-        }
-        int from = Math.max(r, 1), until = h - from;
-        g.fill(x, y + from, x + 1, y + until, color);
-        g.fill(x + w - 1, y + from, x + w, y + until, color);
+        Shapes.ring(g, x, y, w, h, small(r), color);
     }
 
+    /** Круги в пиксельной сетке выглядят рвано, поэтому это квадраты со скруглёнными углами. */
     static void circle(Canvas g, int cx, int cy, int r, int color) {
         if (r <= 0) return;
-        int start = 0, runHalf = circleHalf(r, 0);
-        for (int k = 1; k <= 2 * r; k++) {
-            int half = k < 2 * r ? circleHalf(r, k) : -1;
-            if (half == runHalf) continue;
-            if (runHalf > 0) g.fill(cx - runHalf, cy - r + start, cx + runHalf, cy - r + k, color);
-            start = k; runHalf = half;
-        }
-    }
-
-    private static int circleHalf(int r, int k) {
-        double yy = k - r + 0.5;
-        return (int) Math.round(Math.sqrt(r * r - yy * yy));
+        Shapes.fill(g, cx - r, cy - r, r * 2, r * 2, Math.max(1, Math.min(3, r / 3)), color);
     }
 
     static void tri(Canvas g, int x, int cy, int w, int h, boolean right, int color) {

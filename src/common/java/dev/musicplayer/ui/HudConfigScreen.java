@@ -305,7 +305,7 @@ public class HudConfigScreen extends ModScreen {
                 rows.add(swatches("accent", () -> p.syncAccent ? c.accent : p.accent, v -> { p.syncAccent = false; p.accent = v; p.customAccent = -1; },
                         () -> p.syncAccent ? c.customAccent : p.customAccent, v -> { p.syncAccent = false; p.customAccent = v; }));
                 rows.add(slider("window_size", 70, 150, 5, PD.windowScale, () -> p.windowScale, v -> p.windowScale = (int) v, HudConfigScreen::percent));
-                rows.add(slider("corner", 0, 8, 1, PD.cornerRadius, () -> p.cornerRadius, v -> p.cornerRadius = (int) v, HudConfigScreen::num));
+                rows.add(slider("corner", 0, 16, 1, PD.cornerRadius, () -> p.cornerRadius, v -> p.cornerRadius = (int) v, HudConfigScreen::num));
                 rows.add(choice("window_anim", () -> p.windowAnim, v -> p.windowAnim = v));
                 rows.add(slider("tint", 0, 3, 1, PD.tint, () -> p.tint, v -> p.tint = (int) v, v -> Math.round(v * 5) + "%"));
                 rows.add(slider("opacity", 20, 100, 5, PD.windowOpacity, () -> p.windowOpacity, v -> p.windowOpacity = (int) v, HudConfigScreen::percent));
@@ -436,8 +436,10 @@ public class HudConfigScreen extends ModScreen {
                 if (fill > 0) PlayerTheme.rrect(g(), x, ty - 2, Math.max(4, fill), 4, 2, th.accent);
                 int dx = x + (int) Math.round(w * (def - min) / (max - min));
                 g().fill(dx, ty - 4, dx + 1, ty + 4, PlayerTheme.argb(0xFFFFFF, 70));
-                PlayerTheme.circle(g(), Math.max(x + 4, Math.min(x + w - 4, x + fill)), ty, hot ? 6 : 5, th.accent);
-                PlayerTheme.circle(g(), Math.max(x + 4, Math.min(x + w - 4, x + fill)), ty, hot ? 3 : 2, PlayerTheme.TEXT_MAIN);
+                int kx = Math.max(x + 4, Math.min(x + w - 4, x + fill));
+                int kr = hot ? 6 : 5;
+                Shapes.shadow(g(), kx - kr, ty - kr, kr * 2, kr * 2, 1, 1, 0x80000000);
+                PlayerTheme.circle(g(), kx, ty, kr, PlayerTheme.TEXT_MAIN);
             }
             @Override boolean press(int button) {
                 if (button == 1) { set.accept(def); touched(); return false; }   // двойной клик — значение по умолчанию
@@ -790,7 +792,6 @@ public class HudConfigScreen extends ModScreen {
             boolean hover = mouseX >= tx && mouseX < tx + tw && mouseY >= ty && mouseY < ty + 20;
             if (active) PlayerTheme.rrect(g, tx, ty, tw, 20, 4, th.rowCurrent);
             else if (hover) PlayerTheme.rrect(g, tx, ty, tw, 20, 4, th.hover);
-            if (active) g.fill(tx, ty + 3, tx + 2, ty + 17, th.accent);
             String name = font.plainSubstrByWidth(T.get("tab." + tabs[i].name().toLowerCase(Locale.ROOT)), tw - 14);
             g.text(font, name, tx + 8, ty + 6, active ? th.accent : hover ? PlayerTheme.TEXT_MAIN : PlayerTheme.TEXT_MID);
         }

@@ -118,7 +118,7 @@ public final class PlayerConfig {
         dim = Math.max(0, Math.min(100, dim));
         windowOpacity = Math.max(20, Math.min(100, windowOpacity));
         prefetchCount = Math.max(1, Math.min(8, prefetchCount));
-        cornerRadius = Math.max(0, Math.min(8, cornerRadius));
+        cornerRadius = Math.max(0, Math.min(16, cornerRadius));
     }
 
     public void save() {

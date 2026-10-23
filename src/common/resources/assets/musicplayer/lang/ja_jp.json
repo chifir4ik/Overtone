@@ -506,6 +506,8 @@
   "overtone.hint.world_with_hud": "歌詞がワールドに飛んでいる間も、画面上の字幕やカラオケを表示します。初期設定はオフです。",
   "overtone.status.sc_preview": "SoundCloudはこの曲の30秒分しか提供していません。全編はGo+加入者向けです。",
   "overtone.err.sp_not_started": "Spotify が再生を開始しませんでした。Spotify アプリを開いて（固まっていれば再起動）もう一度再生してください",
+  "overtone.err.sp_stuck": "デバイス「%s」の Spotify が再生を開始しませんでした。この PC の Spotify で何か曲を再生してから、もう一度ここで再生を押してください",
+  "overtone.err.sp_no_answer": "Spotify アプリ（「%s」）が応答しません。この PC で Spotify を開いて（開いている場合は再起動）、もう一度再生してください",
   "overtone.err.sp_flatpak": "Prism のサンドボックスから Spotify に接続できません。Spotify を開き、Prism を完全に再起動してください（D-Bus アクセスが必要、README 参照）",
   "overtone.err.sp_open_app": "このパソコンで Spotify アプリを開いてから、もう一度再生してください",
   "overtone.set.viz_opacity": "バーの不透明度",
@@ -573,5 +575,13 @@
   "overtone.status.code_getting": "ログインコードを取得中…",
   "overtone.err.code_failed": "Yandexがコードを発行しませんでした。もう一度お試しください",
   "overtone.err.code_denied": "Yandexのページでログインが拒否されました",
-  "overtone.err.code_expired": "コードの有効期限が切れました。もう一度「コードでログイン」を押してください"
+  "overtone.err.code_expired": "コードの有効期限が切れました。もう一度「コードでログイン」を押してください",
+  "overtone.player.shift": "ずれ %s 秒",
+  "overtone.player.lyrics_own": "自分の歌詞",
+  "overtone.player.lyrics_own_remove": "自分の歌詞を削除",
+  "overtone.status.lyrics_drop_hint": ".lrc / .ttml / .txt ファイルをプレーヤーにドロップすると、この曲の歌詞になります",
+  "overtone.status.lyrics_need_track": "先にその歌詞の曲を再生してください",
+  "overtone.status.lyrics_saved": "この曲の歌詞を保存しました",
+  "overtone.status.lyrics_removed": "自分の歌詞を削除しました。歌詞を再検索します",
+  "overtone.status.lyrics_bad_file": "ファイルから歌詞を読めませんでした: %s"
 }

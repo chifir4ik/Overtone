@@ -506,6 +506,8 @@
   "overtone.hint.world_with_hud": "Keep the on-screen subtitles or karaoke while the words fly in the world. Off by default.",
   "overtone.status.sc_preview": "SoundCloud only provides 30 seconds of this track: the full version is for Go+ subscribers.",
   "overtone.err.sp_not_started": "Spotify did not start playing: open the Spotify app (restart it if it is stuck) and press play again",
+  "overtone.err.sp_stuck": "Spotify on device \"%s\" did not start. Play any song directly in Spotify on this PC, then press play here again",
+  "overtone.err.sp_no_answer": "The Spotify app (\"%s\") is not responding. Open Spotify on this PC (restart it if it is open) and press play again",
   "overtone.err.sp_flatpak": "Can't reach the Spotify app from the Prism sandbox: open Spotify, then fully close and reopen Prism (D-Bus access must be granted, see README)",
   "overtone.err.sp_open_app": "Open the Spotify app on this computer, then press play again",
   "overtone.set.viz_opacity": "Bar opacity",
@@ -573,5 +575,13 @@
   "overtone.status.code_getting": "Getting a login code…",
   "overtone.err.code_failed": "Yandex did not give a code, try again",
   "overtone.err.code_denied": "Login was declined on the Yandex page",
-  "overtone.err.code_expired": "The code expired, press \"Log in with a code\" again"
+  "overtone.err.code_expired": "The code expired, press \"Log in with a code\" again",
+  "overtone.player.shift": "Shift %s s",
+  "overtone.player.lyrics_own": "Own lyrics",
+  "overtone.player.lyrics_own_remove": "Remove own lyrics",
+  "overtone.status.lyrics_drop_hint": "Drop an .lrc, .ttml or .txt file into the player window — it becomes the lyrics of this song",
+  "overtone.status.lyrics_need_track": "Play the song these lyrics belong to first",
+  "overtone.status.lyrics_saved": "Own lyrics saved for this song",
+  "overtone.status.lyrics_removed": "Own lyrics removed, searching again",
+  "overtone.status.lyrics_bad_file": "Could not read lyrics from the file: %s"
 }

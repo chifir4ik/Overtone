@@ -108,6 +108,16 @@ final class TrackMatch {
         return a.isEmpty() ? artist : a;
     }
 
+    private static final Pattern SLOWER = Pattern.compile("(?i)\\b(slowed|daycore)\\b");
+    private static final Pattern FASTER = Pattern.compile("(?i)\\b(sped|speed)\\s*up\\b|\\bnightcore\\b");
+
+    /** -1 — замедленная версия (slowed), 1 — ускоренная (sped up, nightcore), 0 — обычная. */
+    static int tempo(String title) {
+        if (title == null) return 0;
+        if (SLOWER.matcher(title).find()) return -1;
+        return FASTER.matcher(title).find() ? 1 : 0;
+    }
+
     /** Убирает хвосты вроде «(Remix)», «[Live]», «- Radio Edit», «feat. …». */
     static String cleanTitle(String title) {
         if (title == null) return "";

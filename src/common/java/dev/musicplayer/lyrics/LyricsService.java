@@ -8,7 +8,9 @@ import dev.musicplayer.provider.MusicProvider;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -23,7 +25,8 @@ public final class LyricsService {
     private static final long LRCLIB_TIMEOUT_SECONDS = 28;
     /** Без потолка зависший запрос оставляет плеер в вечном «поиске текста». */
     private static final long TOTAL_TIMEOUT_SECONDS = 32;
-    private static final long PREFER_WAIT_MS = 5000;
+    /** Сколько ждём текст площадки (у него бывают тайминги слов), когда LRCLIB уже нашёл свой. */
+    private static final long PREFER_WAIT_MS = 2000;
 
     private static final ScheduledExecutorService TIMER = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "musicplayer-lyrics-timer");
@@ -31,19 +34,74 @@ public final class LyricsService {
         return t;
     });
 
+    /** Играющий и следующий трек: поиск для пролистанного бросаем, чтобы не тратить запросы. */
+    private static volatile Track wanted, upcoming;
+    /** Если текст уже ищется (например, заранее для следующего трека), второй поиск не запускаем. */
+    private static final Map<Track, CompletableFuture<List<LyricLine>>> RUNNING = new ConcurrentHashMap<>();
+
     private LyricsService() {}
 
+    static boolean wanted(Track t) { return t.equals(wanted) || t.equals(upcoming); }
+
     public static CompletableFuture<List<LyricLine>> fetch(Track t, MusicProvider source) {
+        List<LyricLine> own = TrackLyrics.custom(t);
+        if (!own.isEmpty()) return done(own);
+        wanted = t;
+        return lookup(t, source, false);
+    }
+
+    /** Ищем текст следующего трека, пока играет этот: к его началу текст уже лежит в кэше. */
+    public static void prefetch(Track t, MusicProvider source) {
+        if (t == null || t.equals(upcoming) || TrackLyrics.hasCustom(t)) return;
+        upcoming = t;
+        lookup(t, source, true);
+    }
+
+    private static CompletableFuture<List<LyricLine>> lookup(Track t, MusicProvider source, boolean ahead) {
+        CompletableFuture<List<LyricLine>> mine = new CompletableFuture<>();
+        CompletableFuture<List<LyricLine>> running = RUNNING.putIfAbsent(t, mine);
+        if (running != null) return running;
+        LyricsIo.run(() -> {
+            List<LyricLine> cached = LyricsCache.get(t);
+            return cached != null ? cached : List.of();
+        }).thenCompose(cached -> {
+            if (!cached.isEmpty()) return done(cached);
+            // недавно уже искали и точно ничего нет: повторные попытки не должны снова дёргать сеть
+            if (LyricsCache.missing(t)) return done(List.<LyricLine>of());
+            return search(t, source, ahead);
+        }).whenComplete((l, e) -> {
+            RUNNING.remove(t, mine);
+            if (e != null) mine.completeExceptionally(e);
+            else mine.complete(l);
+        });
+        return mine;
+    }
+
+    private static CompletableFuture<List<LyricLine>> search(Track t, MusicProvider source, boolean ahead) {
         PlayerConfig c = PlayerConfig.get();
         boolean online = c.onlineLyrics;
 
         List<CompletableFuture<List<LyricLine>>> synced = new ArrayList<>();
-        synced.add(guard(source.lyrics(t, true), SOURCE_TIMEOUT_SECONDS));
-        if (online && c.amllLyrics) synced.add(guard(AmllClient.fetch(t), SOURCE_TIMEOUT_SECONDS));
-        CompletableFuture<List<LyricLine>> lrclib = online ? guard(LrcLibClient.fetch(t), LRCLIB_TIMEOUT_SECONDS) : done(List.of());
+        Map<CompletableFuture<List<LyricLine>>, String> names = new java.util.IdentityHashMap<>();
+        CompletableFuture<List<LyricLine>> platformSynced = guard(source.lyrics(t, true), SOURCE_TIMEOUT_SECONDS);
+        synced.add(platformSynced);
+        names.put(platformSynced, "platform");
+        if (online && c.amllLyrics) {
+            CompletableFuture<List<LyricLine>> amll = guard(AmllClient.fetch(t), SOURCE_TIMEOUT_SECONDS);
+            synced.add(amll);
+            names.put(amll, "AMLL");
+        }
+        CompletableFuture<List<LyricLine>> lrclibRaw = online ? LrcLibClient.fetch(t) : done(List.of());
+        CompletableFuture<List<LyricLine>> lrclib = guard(lrclibRaw, LRCLIB_TIMEOUT_SECONDS);
         synced.add(lrclib);
-        if (online && c.kugouLyrics) synced.add(guard(KuGouClient.fetch(t), SOURCE_TIMEOUT_SECONDS));
+        names.put(lrclib, "LRCLIB");
+        if (online && c.kugouLyrics) {
+            CompletableFuture<List<LyricLine>> kugou = guard(KuGouClient.fetch(t), SOURCE_TIMEOUT_SECONDS);
+            synced.add(kugou);
+            names.put(kugou, "KuGou");
+        }
         CompletableFuture<List<LyricLine>> platformPlain = guard(source.lyrics(t, false), SOURCE_TIMEOUT_SECONDS);
+        names.put(platformPlain, "platform");
 
         List<CompletableFuture<List<LyricLine>>> plain = List.of(platformPlain, lrclib);
         CompletableFuture<List<LyricLine>> result = new CompletableFuture<>();
@@ -62,7 +120,21 @@ public final class LyricsService {
                 .thenApply(l -> l != null ? l : anything(synced, plain))
                 .exceptionally(e -> List.of())
                 .thenApply(l -> {
-                    if (l.isEmpty()) MusicPlayerMod.LOGGER.info("No lyrics found: \"{}\" by {}", t.title(), t.artist());
+                    String when = (System.currentTimeMillis() - start) + " ms" + (ahead ? ", ahead of time" : "");
+                    if (!l.isEmpty()) {
+                        LyricsCache.put(t, l);
+                        String from = "?";
+                        for (var e : names.entrySet()) if (e.getKey().getNow(null) == l) from = e.getValue();
+                        MusicPlayerMod.LOGGER.info("Lyrics for \"{}\" by {}: {}, {} lines{} ({})", t.title(), t.artist(), from,
+                                l.size(), l.get(0).timeMs() == LyricLine.UNSYNCED ? " without timings" : "", when);
+                        return l;
+                    }
+                    // по причине видно, нет ли песни в базе или LRCLIB просто не ответил
+                    String why = !online ? "online lyrics off" : !lrclibRaw.isDone() ? "LRCLIB did not answer"
+                            : lrclibRaw.isCompletedExceptionally() ? "LRCLIB failed: " + failure(lrclibRaw) : "not in LRCLIB";
+                    MusicPlayerMod.LOGGER.info("No lyrics found: \"{}\" by {} — {} ({})", t.title(), t.artist(), why, when);
+                    // «нет» запоминаем, только если LRCLIB честно ответил, а не упал и не был прерван
+                    if (online && lrclibRaw.isDone() && !lrclibRaw.isCompletedExceptionally()) LyricsCache.markMissing(t);
                     return l;
                 });
     }
@@ -102,6 +174,17 @@ public final class LyricsService {
         return f.exceptionally(e -> List.of())
                 .thenApply(l -> l == null ? List.<LyricLine>of() : l)
                 .completeOnTimeout(List.of(), seconds, TimeUnit.SECONDS);
+    }
+
+    private static String failure(CompletableFuture<?> f) {
+        try {
+            f.getNow(null);
+            return "?";
+        } catch (Exception e) {
+            Throwable c = e.getCause() != null ? e.getCause() : e;
+            while (c.getCause() != null && c.getMessage() == null) c = c.getCause();
+            return c.getMessage() != null ? c.getMessage() : c.getClass().getSimpleName();
+        }
     }
 
     private static boolean isSynced(List<LyricLine> l) { return !l.isEmpty() && l.get(0).timeMs() != LyricLine.UNSYNCED; }

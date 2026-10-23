@@ -43,6 +43,16 @@ public final class CanvasImpl extends Canvas {
         ctx.setColor(1f, 1f, 1f, 1f);
     }
 
+    @Override
+    public void blit(Tex texture, int x, int y, int w, int h, int u, int v, int uw, int vh, int textureSize, int argb) {
+        int c = faded(argb);
+        if (c >>> 24 == 0) return;
+        RenderSystem.enableBlend();
+        ctx.setColor(((c >> 16) & 0xFF) / 255f, ((c >> 8) & 0xFF) / 255f, (c & 0xFF) / 255f, (c >>> 24) / 255f);
+        ctx.blit(texture.id, x, y, w, h, u, v, uw, vh, textureSize, textureSize);
+        ctx.setColor(1f, 1f, 1f, 1f);
+    }
+
     @Override public void pushMatrix() { ctx.pose().pushPose(); }
     @Override public void translate(float x, float y) { ctx.pose().translate(x, y, 0f); }
     @Override public void scale(float x, float y) { ctx.pose().scale(x, y, 1f); }

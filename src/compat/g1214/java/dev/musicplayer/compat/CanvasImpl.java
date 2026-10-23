@@ -41,6 +41,13 @@ public final class CanvasImpl extends Canvas {
                 width, height, textureSize, textureSize, textureSize, textureSize, tint);
     }
 
+    @Override
+    public void blit(Tex texture, int x, int y, int w, int h, int u, int v, int uw, int vh, int textureSize, int argb) {
+        int c = faded(argb);
+        if (c >>> 24 == 0) return;
+        ctx.blit(RenderType::guiTextured, texture.id, x, y, u, v, w, h, uw, vh, textureSize, textureSize, c);
+    }
+
     @Override public void pushMatrix() { ctx.pose().pushPose(); }
     @Override public void translate(float x, float y) { ctx.pose().translate(x, y, 0f); }
     @Override public void scale(float x, float y) { ctx.pose().scale(x, y, 1f); }

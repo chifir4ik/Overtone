@@ -506,6 +506,8 @@
   "overtone.hint.world_with_hud": "Показывать обычные субтитры или караоке на экране, пока слова летят в мире. По умолчанию выключено.",
   "overtone.status.sc_preview": "SoundCloud отдаёт только 30 секунд этого трека: полная версия доступна подписчикам Go+.",
   "overtone.err.sp_not_started": "Spotify не начал играть: открой приложение Spotify (перезапусти, если зависло) и нажми плей ещё раз",
+  "overtone.err.sp_stuck": "Spotify на устройстве «%s» не заиграл. Запусти любой трек прямо в Spotify на этом компе, потом снова нажми плей здесь",
+  "overtone.err.sp_no_answer": "Приложение Spotify («%s») не отвечает. Открой Spotify на этом компе (если открыт — перезапусти) и нажми плей ещё раз",
   "overtone.err.sp_flatpak": "Из песочницы Prism не достучаться до Spotify: открой Spotify, затем полностью закрой и заново открой Prism (нужен доступ к D-Bus, см. README)",
   "overtone.err.sp_open_app": "Открой приложение Spotify на этом компе и нажми плей ещё раз",
   "overtone.set.viz_opacity": "Прозрачность столбиков",
@@ -573,5 +575,13 @@
   "overtone.status.code_getting": "Получаю код для входа…",
   "overtone.err.code_failed": "Яндекс не выдал код, попробуйте ещё раз",
   "overtone.err.code_denied": "Вход отклонён на странице Яндекса",
-  "overtone.err.code_expired": "Код истёк, нажмите «Войти по коду» ещё раз"
+  "overtone.err.code_expired": "Код истёк, нажмите «Войти по коду» ещё раз",
+  "overtone.player.shift": "Сдвиг %s с",
+  "overtone.player.lyrics_own": "Свой текст",
+  "overtone.player.lyrics_own_remove": "Убрать свой текст",
+  "overtone.status.lyrics_drop_hint": "Перетащите файл .lrc, .ttml или .txt в окно плеера — он станет текстом этой песни",
+  "overtone.status.lyrics_need_track": "Сначала включите песню, к которой этот текст",
+  "overtone.status.lyrics_saved": "Свой текст сохранён для этой песни",
+  "overtone.status.lyrics_removed": "Свой текст убран, ищу текст заново",
+  "overtone.status.lyrics_bad_file": "Не удалось взять текст из файла: %s"
 }

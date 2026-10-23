@@ -25,7 +25,6 @@ public final class WidgetRenderer {
 
     private static final int C_TITLE = 0xFFFFFF, C_ARTIST = 0xB3B3B3, C_TIME = 0x8C8C8C, C_BARS = 0xDCDCDC;
 
-    private static final int V_BG = 0xF0100010, V_BORDER_TOP = 0x505000FF, V_BORDER_BOTTOM = 0x5028007F;
 
     private static float alpha;
     private static boolean cardLyricsHidden;
@@ -279,21 +278,8 @@ public final class WidgetRenderer {
     }
 
     private static void tooltipFrame(Canvas c, int x, int y, int w, int h, float a) {
-        int bg = scaleAlpha(V_BG, a);
-        c.rect(x - 3, y - 4, w + 6, 1, bg);
-        c.rect(x - 3, y + h + 3, w + 6, 1, bg);
-        c.rect(x - 3, y - 3, w + 6, h + 6, bg);
-        c.rect(x - 4, y - 3, 1, h + 6, bg);
-        c.rect(x + w + 3, y - 3, 1, h + 6, bg);
-        int top = scaleAlpha(V_BORDER_TOP, a), bottom = scaleAlpha(V_BORDER_BOTTOM, a);
-        int bh = h + 4;
-        for (int row = 0; row < bh; row++) {
-            int col = lerpArgb(top, bottom, bh <= 1 ? 0f : row / (float) (bh - 1));
-            c.rect(x - 3, y - 2 + row, 1, 1, col);
-            c.rect(x + w + 2, y - 2 + row, 1, 1, col);
-        }
-        c.rect(x - 3, y - 3, w + 6, 1, top);
-        c.rect(x - 3, y + h + 2, w + 6, 1, bottom);
+        Draw.roundedRect(c, x - 4, y - 4, w + 8, h + 8, 2, scaleAlpha(0xF0111115, a));
+        Draw.roundedOutline(c, x - 4, y - 4, w + 8, h + 8, 2, scaleAlpha(0x26FFFFFF, a));
     }
 
     private static void artwork(Canvas c, Snapshot s, int x, int y, int size, float a) {
@@ -341,12 +327,4 @@ public final class WidgetRenderer {
         return (al << 24) | (argb & 0xFFFFFF);
     }
 
-    private static int lerpArgb(int from, int to, float t) {
-        int out = 0;
-        for (int shift = 0; shift < 32; shift += 8) {
-            int p = (from >>> shift) & 0xFF, q = (to >>> shift) & 0xFF;
-            out |= (Math.round(p + (q - p) * t) & 0xFF) << shift;
-        }
-        return out;
-    }
 }

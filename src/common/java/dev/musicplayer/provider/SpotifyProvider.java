@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -52,7 +53,8 @@ public final class SpotifyProvider implements MusicProvider {
    private static final Pattern CLIENT_ID = Pattern.compile("[0-9a-fA-F]{32}");
    private static final long LOGIN_TIMEOUT_MS = 180000L;
    private static final long END_WINDOW_MS = 3000L;
-   private static final long SETTLE_MS = 3000L;
+   /** Сколько ждём, пока приложение Spotify реально заиграет: на слабых компах оно просыпается секунды по 4-5. */
+   private static final long SETTLE_MS = 7000L;
    private static final SafeHttp HTTP = new SafeHttp(Set.of("spotify.com"));
    private static final SecureRandom RANDOM = new SecureRandom();
    private static volatile ServerSocket pendingLogin;
@@ -64,6 +66,10 @@ public final class SpotifyProvider implements MusicProvider {
    private volatile String accessToken;
    private volatile long accessExpires;
    private volatile String deviceId;
+   private volatile String deviceName = "";
+   private volatile boolean deviceActive;
+   /** Альбом каждого трека из поиска и списков: трек запускается внутри него, см. startRemote. */
+   private static final Map<String, String> ALBUMS = new ConcurrentHashMap<>();
    private volatile Runnable finished;
    private volatile String playingId;
    private volatile long durationMs;
@@ -491,6 +497,8 @@ public final class SpotifyProvider implements MusicProvider {
       }
 
       JsonObject album = Json.obj(o, "album");
+      String albumUri = Json.str(album, "uri");
+      if (!albumUri.isEmpty()) ALBUMS.put(Json.str(o, "id"), albumUri);
       JsonArray images = Json.array(album, "images");
       String cover = imageUrl(images);
       long duration = o.has("duration_ms") && !o.get("duration_ms").isJsonNull() ? o.get("duration_ms").getAsLong() : 0L;
@@ -546,28 +554,45 @@ public final class SpotifyProvider implements MusicProvider {
       if (id != null) {
          return id;
       } else {
-         String fallback = null;
-
+         // Раньше брался последний попавшийся «computer», а это бывает и закрытая вкладка веб-плеера, и чужой ПК:
+         // трек уходил туда, Spotify замирал на нуле и сам переставал слушаться кнопок. Теперь сначала активное
+         // устройство, потом приложение на этом компе (Spotify называет его именем компа), и только потом остальное.
+         String host = hostName();
+         String best = null, bestName = "";
+         int bestScore = -1;
          for (JsonElement e : Json.array(this.api("GET", "/me/player/devices", null), "devices")) {
             JsonObject d = e.getAsJsonObject();
-            if (!"true".equals(Json.str(d, "is_restricted"))) {
-               if ("true".equals(Json.str(d, "is_active"))) {
-                  fallback = Json.str(d, "id");
-                  break;
-               }
-
-               if (fallback == null || "computer".equalsIgnoreCase(Json.str(d, "type"))) {
-                  fallback = Json.str(d, "id");
-               }
+            String did = Json.str(d, "id");
+            if ("true".equals(Json.str(d, "is_restricted")) || did.isEmpty()) continue;
+            String name = Json.str(d, "name");
+            boolean computer = "computer".equalsIgnoreCase(Json.str(d, "type"));
+            int score = "true".equals(Json.str(d, "is_active")) ? 4
+                    : computer && !host.isEmpty() && name.equalsIgnoreCase(host) ? 3
+                    : computer && !name.toLowerCase(Locale.ROOT).contains("web player") ? 2
+                    : 1;
+            if (score > bestScore) {
+               best = did;
+               bestName = name;
+               bestScore = score;
             }
          }
 
-         if (fallback != null && !fallback.isEmpty()) {
-            this.deviceId = fallback;
-            return fallback;
-         } else {
-            throw new IOException(T.get("err.sp_no_device"));
-         }
+         if (best == null) throw new IOException(T.get("err.sp_no_device"));
+         MusicPlayerMod.LOGGER.info("Spotify: playing on device \"{}\"", bestName);
+         this.deviceId = best;
+         this.deviceName = bestName;
+         this.deviceActive = bestScore == 4;
+         return best;
+      }
+   }
+
+   private static String hostName() {
+      String env = System.getenv("COMPUTERNAME");
+      if (env != null && !env.isBlank()) return env.trim();
+      try {
+         return InetAddress.getLocalHost().getHostName();
+      } catch (Exception e) {
+         return "";
       }
    }
 
@@ -582,6 +607,60 @@ public final class SpotifyProvider implements MusicProvider {
          } else {
             return this.api(method, "/me/player" + path + sep + "device_id=" + enc(this.device()), json);
          }
+      }
+   }
+
+   private void startRemote(Track t) throws Exception {
+      // устройство выбираем заново: его могли сменить в самом Spotify или закрыть с тех пор
+      this.deviceId = null;
+      // Спящее приложение часто принимает команду и ничего не играет: сначала переводим воспроизведение на него
+      if (!this.deviceActive) this.transfer(this.device());
+      // Одиночный трек ("uris") приложение Spotify у части людей молча сбрасывает и встаёт пустым,
+      // а тот же трек внутри своего альбома включает сразу. Поэтому играем альбом с нужного трека.
+      String album = this.albumOf(t.id());
+      String body = album.isEmpty()
+            ? "{\"uris\":[\"spotify:track:" + t.id() + "\"],\"position_ms\":0}"
+            : "{\"context_uri\":\"" + album + "\",\"offset\":{\"uri\":\"spotify:track:" + t.id() + "\"},\"position_ms\":0}";
+      try {
+         this.player("PUT", "/play", body);
+      } catch (HttpError e) {
+         if (e.status / 100 != 5) throw e;
+         // 502 = Spotify не достучался до приложения. Будим его ещё раз и повторяем
+         MusicPlayerMod.LOGGER.info("Spotify: device \"{}\" did not answer (HTTP {}), retrying", this.deviceName, e.status);
+         this.deviceId = null;
+         this.transfer(this.device());
+         try {
+            this.player("PUT", "/play", body);
+         } catch (HttpError again) {
+            if (again.status / 100 != 5) throw again;
+            this.deviceId = null;
+            throw new IOException(T.get("err.sp_no_answer", this.deviceName));
+         }
+      }
+   }
+
+   private String albumOf(String trackId) {
+      String uri = ALBUMS.get(trackId);
+      if (uri != null) return uri;
+      try {
+         uri = Json.str(Json.obj(this.api("GET", "/tracks/" + enc(trackId), null), "album"), "uri");
+      } catch (Exception e) {
+         MusicPlayerMod.LOGGER.debug("Spotify album of {} unknown: {}", trackId, e.getMessage());
+         return "";
+      }
+      if (!uri.isEmpty()) ALBUMS.put(trackId, uri);
+      return uri;
+   }
+
+   private void transfer(String device) throws InterruptedException {
+      try {
+         this.api("PUT", "/me/player", "{\"device_ids\":[\"" + device + "\"],\"play\":false}");
+         this.deviceActive = true;
+         Thread.sleep(500L);
+      } catch (InterruptedException e) {
+         throw e;
+      } catch (Exception e) {
+         MusicPlayerMod.LOGGER.debug("Spotify transfer failed: {}", e.getMessage());
       }
    }
 
@@ -601,7 +680,7 @@ public final class SpotifyProvider implements MusicProvider {
          if (this.local) {
             Mpris.openUri("spotify:track:" + t.id());
          } else {
-            this.player("PUT", "/play", "{\"uris\":[\"spotify:track:" + t.id() + "\"],\"position_ms\":0}");
+            this.startRemote(t);
          }
 
          if (this.generation.get() == my) {
@@ -795,9 +874,16 @@ public final class SpotifyProvider implements MusicProvider {
          isPlaying = present && st.playing();
          progress = present ? st.positionMs() : 0L;
       } else {
-         JsonObject s = this.api("GET", "/me/player", null);
+         JsonObject s = this.api("GET", "/me/player?market=from_token", null);
          present = s.size() != 0;
-         itemId = Json.str(Json.obj(s, "item"), "id");
+         JsonObject item = Json.obj(s, "item");
+         itemId = Json.str(item, "id");
+         // Если трек недоступен в стране аккаунта, Spotify подменяет его региональной копией с другим id.
+         // Раньше это считалось «не заиграло», и через 3 секунды вылетала ошибка, хотя музыка шла.
+         if (id != null && !itemId.equals(id)
+               && (id.equals(Json.str(Json.obj(item, "linked_from"), "id")) || sameSong(item))) {
+            itemId = id;
+         }
          isPlaying = "true".equals(Json.str(s, "is_playing"));
          progress = s.has("progress_ms") && !s.get("progress_ms").isJsonNull() ? s.get("progress_ms").getAsLong() : 0L;
       }
@@ -815,6 +901,13 @@ public final class SpotifyProvider implements MusicProvider {
             boolean stoppedAtEnd = !isPlaying && (progress == 0L || this.durationMs > 0L && progress >= this.durationMs - 1000L);
             if (nearEnd && !settling && (wrapped || stoppedAtEnd)) {
                this.finish(gen);
+            } else if (!this.confirmed && !settling && !isPlaying) {
+               // трек принят, но устройство так и не заиграло (стоит на нуле): говорим, а не висим молча
+               this.playingId = null;
+               this.playing = false;
+               this.deviceId = null;
+               Consumer<String> sink = this.errorSink;
+               if (sink != null) sink.accept(T.get("err.sp_stuck", this.deviceName));
             } else {
                this.progressMs = progress;
                this.progressAt = now;
@@ -828,6 +921,9 @@ public final class SpotifyProvider implements MusicProvider {
                this.playing = false;
                if (!this.confirmed) {
                   // так и не заиграл: говорим об этом, а не показываем молча остановленный плеер
+                  MusicPlayerMod.LOGGER.info("Spotify: asked for {} on \"{}\", player reports {}",
+                        id, this.deviceName, present ? "track " + itemId + (isPlaying ? " playing" : " paused") : "nothing");
+                  this.deviceId = null;
                   Consumer<String> sink = this.errorSink;
                   if (sink != null) {
                      sink.accept(T.get("err.sp_not_started"));
@@ -836,6 +932,13 @@ public final class SpotifyProvider implements MusicProvider {
             }
          }
       }
+   }
+
+   private boolean sameSong(JsonObject item) {
+      Track t = this.lastTrack;
+      if (t == null || item.size() == 0) return false;
+      long d = item.has("duration_ms") ? item.get("duration_ms").getAsLong() : -1L;
+      return Json.str(item, "name").equalsIgnoreCase(t.title()) && Math.abs(d - t.durationMs()) < 3000L;
    }
 
    private void finish(int gen) {

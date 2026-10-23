@@ -19,7 +19,7 @@ public final class LyricsRenderer {
     private LyricsRenderer() {}
 
     private static final int C_DIM = 0x9A9AA8;
-    private static final int MAX_BITS = 700;
+    private static final int MAX_BITS = 400;
     private static final float GRAVITY = 650f;
 
     private static float alpha;
@@ -294,7 +294,7 @@ public final class LyricsRenderer {
         for (int i = 0; i < ws.length; i++) { ws[i] = c.textWidth(wt.words[i]); total += ws[i] + (i > 0 ? space : 0); }
         if (total > inner) return false;
 
-        long pos = s.posMs - cfg.lyricsShiftMs;
+        long pos = s.posMs - dev.musicplayer.lyrics.TrackLyrics.totalShift();
         int sung = currentColor(cfg);
         int unsung = Draw.lerpRgb(C_DIM, 0xFFFFFF, 0.6f);
         int px = x + (w - total) / 2;

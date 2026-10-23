@@ -445,7 +445,7 @@ public final class WorldLyricsRenderer {
          groups.clear();
          scatterLines.clear();
       } else {
-         long spos = pos - cfg.lyricsShiftMs;
+         long spos = pos - dev.musicplayer.lyrics.TrackLyrics.totalShift();
          List<WorldLyricsRenderer.Group> active = new ArrayList<>();
          Set<Integer> keep = new HashSet<>();
          boolean scatter = cfg.worldLayout == HudConfig.WorldLayout.SCATTER;

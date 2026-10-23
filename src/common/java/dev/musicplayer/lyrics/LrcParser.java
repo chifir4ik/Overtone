@@ -108,7 +108,7 @@ public final class LrcParser {
     }
 
     public static int currentIndex(List<LyricLine> lines, long positionMs) {
-        positionMs -= HudConfig.get().lyricsShiftMs;
+        positionMs -= TrackLyrics.totalShift();
         int lo = 0, hi = lines.size() - 1, ans = -1;
         while (lo <= hi) {
             int mid = (lo + hi) >>> 1;

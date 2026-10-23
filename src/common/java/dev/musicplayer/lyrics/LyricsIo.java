@@ -18,6 +18,17 @@ final class LyricsIo {
 
     private LyricsIo() {}
 
+    /** Как run, но ошибка остаётся ошибкой: так видно, что источник не ответил, а не что текста нет. */
+    static CompletableFuture<List<LyricLine>> attempt(Callable<List<LyricLine>> task) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                throw new java.util.concurrent.CompletionException(e);
+            }
+        }, POOL);
+    }
+
     static CompletableFuture<List<LyricLine>> run(Callable<List<LyricLine>> task) {
         return CompletableFuture.supplyAsync(() -> {
             try {

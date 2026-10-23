@@ -1,6 +1,8 @@
 package dev.musicplayer.ui;
 
 import dev.musicplayer.compat.Canvas;
+import dev.musicplayer.compat.Tex;
+import dev.musicplayer.compat.Textures;
 import dev.musicplayer.compat.Game;
 import dev.musicplayer.compat.KeyInput;
 import dev.musicplayer.compat.Keys;
@@ -21,6 +23,8 @@ public final class ColorPickerScreen extends ModScreen {
     private final IntConsumer onPick;
     private float hue, sat, val;
     private EditBox hex;
+    private Tex square, hueStrip;
+    private float squareHue = -1;
     private String lastHex = "";
     private boolean syncing;
     private int dragging;
@@ -88,18 +92,26 @@ public final class ColorPickerScreen extends ModScreen {
         th.window(g, px, py, PW, PH);
         g.text(font, T.get("picker.title"), px + 16, py + 12, th.accent);
 
-        for (int cx = 0; cx < CELLS; cx++) {
-            for (int cy = 0; cy < CELLS; cy++) {
-                int c = toRgb(hue, (cx + 0.5f) / CELLS, 1f - (cy + 0.5f) / CELLS);
-                g.fill(sx + cx * CELL, sy + cy * CELL, sx + (cx + 1) * CELL, sy + (cy + 1) * CELL, 0xFF000000 | c);
-            }
+        if (square == null || squareHue != hue) {
+            int[] px = new int[CELLS * CELLS];
+            for (int cy = 0; cy < CELLS; cy++)
+                for (int cx = 0; cx < CELLS; cx++)
+                    px[cy * CELLS + cx] = 0xFF000000 | toRgb(hue, (cx + 0.5f) / CELLS, 1f - (cy + 0.5f) / CELLS);
+            Textures.release(square);
+            square = Textures.upload("picker_square", px, CELLS);
+            squareHue = hue;
         }
+        if (hueStrip == null) {
+            int[] px = new int[CELLS * CELLS];
+            for (int i = 0; i < px.length; i++) px[i] = 0xFF000000 | toRgb((i / CELLS + 0.5f) / CELLS, 1f, 1f);
+            hueStrip = Textures.upload("picker_hue", px, CELLS);
+        }
+        if (square != null) g.texture(square, sx, sy, SIZE, SIZE, CELLS, 1f);
         int kx = sx + Math.round(sat * SIZE), ky = sy + Math.round((1f - val) * SIZE);
         PlayerTheme.circle(g, kx, ky, 5, 0xFFFFFFFF);
         PlayerTheme.circle(g, kx, ky, 3, 0xFF000000 | rgb());
 
-        for (int i = 0; i < CELLS; i++)
-            g.fill(hx, sy + i * CELL, hx + HUE_W, sy + (i + 1) * CELL, 0xFF000000 | toRgb((i + 0.5f) / CELLS, 1f, 1f));
+        if (hueStrip != null) g.texture(hueStrip, hx, sy, HUE_W, SIZE, CELLS, 1f);
         int hy = sy + Math.round(hue * SIZE);
         g.fill(hx - 2, hy - 1, hx + HUE_W + 2, hy + 2, 0xFFFFFFFF);
 
@@ -170,6 +182,14 @@ public final class ColorPickerScreen extends ModScreen {
 
     @Override
     public void onClose() { Game.open(parent); }
+
+    @Override
+    public void removed() {
+        Textures.release(square);
+        Textures.release(hueStrip);
+        square = hueStrip = null;
+        super.removed();
+    }
 
     @Override
     public boolean isPauseScreen() { return false; }
