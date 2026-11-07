@@ -19,6 +19,7 @@ final class PlatformIcons {
             case SOUNDCLOUD -> soundcloud(g, x, y, size);
             case LOCAL -> folder(g, x, y, size);
             case SPOTIFY -> spotify(g, x, y, size);
+            case YOUTUBE -> youtube(g, x, y, size);
         }
     }
 
@@ -54,5 +55,14 @@ final class PlatformIcons {
         PlayerTheme.rrect(g, x + u(5, s), y + u(7, s), u(14, s), Math.max(1, u(2.2f, s)), u(1.1f, s), INK);
         PlayerTheme.rrect(g, x + u(6, s), y + u(11, s), u(12, s), Math.max(1, u(1.9f, s)), u(1, s), INK);
         PlayerTheme.rrect(g, x + u(7, s), y + u(14.6f, s), u(9.5f, s), Math.max(1, u(1.6f, s)), u(0.8f, s), INK);
+    }
+
+    private static void youtube(Canvas g, int x, int y, int s) {
+        PlayerTheme.rrect(g, x, y, s, s, u(7, s), 0xFFFF0033);
+        int[] widths = {2, 4, 6, 8, 10, 10, 8, 6, 4, 2};
+        for (int i = 0; i < widths.length; i++) {
+            int top = y + u(7 + i, s);
+            g.fill(x + u(8, s), top, x + u(8 + widths[i], s), Math.max(top + 1, y + u(8 + i, s)), WHITE);
+        }
     }
 }

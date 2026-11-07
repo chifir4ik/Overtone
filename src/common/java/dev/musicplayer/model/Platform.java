@@ -6,7 +6,8 @@ public enum Platform {
     YANDEX("yandex", 0xFFCC00, true),
     SOUNDCLOUD("soundcloud", 0xFF5500, false),
     LOCAL("local", 0x34D399, false),
-    SPOTIFY("spotify", 0x1DB954, true);
+    SPOTIFY("spotify", 0x1DB954, true),
+    YOUTUBE("youtube", 0xFF0033, false);
 
     public final String id;
     public final int rgb;

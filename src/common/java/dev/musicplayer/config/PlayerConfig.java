@@ -59,6 +59,8 @@ public final class PlayerConfig {
 
     /** Имя устройства вывода Java Sound. Пусто — системное по умолчанию (оно не всегда совпадает с тем, что выбрано в Minecraft). */
     public String audioDevice = "";
+    /** Путь к yt-dlp; пусто — папка игры или PATH. */
+    public String ytDlpPath = "";
     public boolean duckWhenInactive = false;
 
     /**

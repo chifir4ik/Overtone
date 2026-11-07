@@ -14,6 +14,7 @@ import dev.musicplayer.provider.MusicProvider;
 import dev.musicplayer.provider.SoundCloudProvider;
 import dev.musicplayer.provider.SpotifyProvider;
 import dev.musicplayer.provider.YandexMusicProvider;
+import dev.musicplayer.provider.YtDlpProvider;
 
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -34,6 +35,7 @@ public final class PlayerController {
     public final LocalMusicProvider local = new LocalMusicProvider();
     public final SoundCloudProvider soundcloud = new SoundCloudProvider();
     public final SpotifyProvider spotify = new SpotifyProvider();
+    public final YtDlpProvider youtube = new YtDlpProvider();
     private final Map<Platform, MusicProvider> providers = new EnumMap<>(Platform.class);
 
     /** Площадка, открытая в плеере. null — пользователь на экране выбора. Музыка при этом играет дальше. */
@@ -95,6 +97,7 @@ public final class PlayerController {
         providers.put(Platform.LOCAL, local);
         providers.put(Platform.SOUNDCLOUD, soundcloud);
         providers.put(Platform.SPOTIFY, spotify);
+        providers.put(Platform.YOUTUBE, youtube);
         for (MusicProvider p : providers.values()) {
             p.onFinished(() -> onTrackEnd(p));
             p.onAudioError(m -> { status = T.get("status.audio_error", m); idle = true; });   // idle — чтобы кнопка play пробовала снова
