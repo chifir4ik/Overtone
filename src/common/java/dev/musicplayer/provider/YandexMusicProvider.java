@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import dev.musicplayer.audio.Mp3Player;
 import dev.musicplayer.config.TokenStore;
+import dev.musicplayer.net.SafeHttp;
 import dev.musicplayer.lyrics.LrcParser;
 import dev.musicplayer.model.LyricLine;
 import dev.musicplayer.model.MusicEntity;
@@ -53,6 +54,9 @@ public final class YandexMusicProvider implements MusicProvider {
 
     private static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NORMAL).build();
+    private static final HttpClient TOKEN_HTTP = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(8)).followRedirects(HttpClient.Redirect.NEVER).build();
+    private static final SafeHttp SAFE_HTTP = new SafeHttp(Set.of("yandex.net"));
     private static final ExecutorService EXEC = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "musicplayer-net"); t.setDaemon(true); return t;
     });
@@ -202,7 +206,7 @@ public final class YandexMusicProvider implements MusicProvider {
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(form))
                 .build();
-        HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpResponse<String> r = TOKEN_HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         try {
             return JsonParser.parseString(r.body()).getAsJsonObject();
         } catch (RuntimeException e) {
@@ -884,7 +888,26 @@ public final class YandexMusicProvider implements MusicProvider {
     }
 
     private JsonObject send(HttpRequest req) throws IOException, InterruptedException {
-        HttpResponse<String> r = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpRequest current = req;
+        HttpResponse<String> r;
+        for (int hop = 0; ; hop++) {
+            if (!SAFE_HTTP.allowed(current.uri()))
+                throw new IOException(T.get("err.blocked_host", current.uri().getHost()));
+            r = TOKEN_HTTP.send(current, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            int status = r.statusCode();
+            if (status != 301 && status != 302 && status != 307 && status != 308) break;
+            if (hop >= 5) throw new IOException(T.get("err.too_many_redirects"));
+            String location = r.headers().firstValue("Location")
+                    .orElseThrow(() -> new IOException(T.get("err.redirect")));
+            URI next;
+            try {
+                next = current.uri().resolve(location);
+            } catch (IllegalArgumentException e) {
+                throw new IOException(T.get("err.redirect"));
+            }
+            if (!SAFE_HTTP.allowed(next)) throw new IOException(T.get("err.blocked_host", next.getHost()));
+            current = HttpRequest.newBuilder(current, (n, v) -> true).uri(next).build();
+        }
         if (r.statusCode() == 401 || r.statusCode() == 403) throw new IOException(T.get("err.token_invalid", r.statusCode()));
         if (r.statusCode() / 100 != 2) {
             String b = r.body() == null ? "" : r.body().replaceAll("\\s+", " ");

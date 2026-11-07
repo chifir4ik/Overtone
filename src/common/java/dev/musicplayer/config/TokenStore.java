@@ -5,10 +5,16 @@ import dev.musicplayer.util.T;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 
+import java.io.IOException;
+import java.nio.charset.CharacterCodingException;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,18 +38,57 @@ public final class TokenStore {
     private static Path file() { return Env.configDir().resolve("musicplayer.json"); }
 
     private static JsonObject read() {
+        Path p = file();
+        String content;
         try {
-            if (Files.exists(file())) return JsonParser.parseString(Files.readString(file())).getAsJsonObject();
-        } catch (Exception ignored) {}
-        return new JsonObject();
+            content = Files.readString(p);
+        } catch (NoSuchFileException e) {
+            return new JsonObject();
+        } catch (CharacterCodingException e) {
+            return moveCorrupt(p);
+        } catch (IOException e) {
+            dev.musicplayer.MusicPlayerMod.LOGGER.warn("Cannot read {}: {}", p.getFileName(), e.getMessage());
+            return null;
+        }
+        try {
+            JsonElement parsed = JsonParser.parseString(content);
+            if (parsed.isJsonObject()) return parsed.getAsJsonObject();
+        } catch (JsonParseException ignored) {}
+        return moveCorrupt(p);
+    }
+
+    private static JsonObject moveCorrupt(Path p) {
+        Path corrupt = p.resolveSibling(p.getFileName() + ".corrupt");
+        try {
+            Files.move(p, corrupt, StandardCopyOption.REPLACE_EXISTING);
+            restrictToOwner(corrupt);
+            return new JsonObject();
+        } catch (IOException e) {
+            dev.musicplayer.MusicPlayerMod.LOGGER.warn("Cannot move {}: {}", p.getFileName(), e.getMessage());
+            return null;
+        }
     }
 
     private static void write(JsonObject o) {
+        Path p = file(), temp = null;
         try {
-            Files.createDirectories(file().getParent());
-            Files.writeString(file(), o.toString());
-            restrictToOwner(file());
-        } catch (Exception ignored) {}
+            Files.createDirectories(p.getParent());
+            temp = Files.createTempFile(p.getParent(), "musicplayer-", ".tmp");
+            restrictToOwner(temp);
+            Files.writeString(temp, o.toString());
+            try {
+                Files.move(temp, p, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(temp, p, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            dev.musicplayer.MusicPlayerMod.LOGGER.warn("Cannot write {}: {}", p.getFileName(), e.getMessage());
+        } finally {
+            if (temp != null) {
+                try { Files.deleteIfExists(temp); }
+                catch (IOException e) { dev.musicplayer.MusicPlayerMod.LOGGER.warn("Cannot remove {}: {}", temp.getFileName(), e.getMessage()); }
+            }
+        }
     }
 
     /** На Linux и macOS токены читает только владелец файла; Windows такие права не поддерживает — там это пропускается. */
@@ -57,32 +102,52 @@ public final class TokenStore {
 
     public static synchronized String get(String key) {
         JsonObject o = read();
-        return o.has(key) && !o.get(key).isJsonNull() ? o.get(key).getAsString() : null;
+        if (o == null) return null;
+        JsonElement value = o.get(key);
+        return value != null && value.isJsonPrimitive() && value.getAsJsonPrimitive().isString() ? value.getAsString() : null;
     }
 
     public static synchronized void set(String key, String value) {
         JsonObject o = read();
+        if (o == null || !writable(readAccounts(o))) return;
         if (value == null) o.remove(key); else o.addProperty(key, value);
         write(o);
     }
 
     public static synchronized List<Account> accounts() {
-        return readAccounts(read());
+        JsonObject o = read();
+        return o == null ? List.of() : readAccounts(o).list();
     }
 
-    private static List<Account> readAccounts(JsonObject o) {
+    private record AccountsRead(List<Account> list, boolean valid) {}
+
+    private static AccountsRead readAccounts(JsonObject o) {
         List<Account> out = new ArrayList<>();
-        try {
-            if (!o.has(ACCOUNTS) || !o.get(ACCOUNTS).isJsonArray()) return out;
-            for (JsonElement e : o.getAsJsonArray(ACCOUNTS)) {
-                if (!e.isJsonObject()) continue;
-                JsonObject a = e.getAsJsonObject();
-                String token = str(a, "token");
-                if (token == null || token.isBlank()) continue;
-                out.add(new Account(str(a, "uid"), str(a, "name"), token));
+        boolean valid = true;
+        if (!o.has(ACCOUNTS)) return new AccountsRead(out, true);
+        if (!o.get(ACCOUNTS).isJsonArray()) return new AccountsRead(out, false);
+        for (JsonElement e : o.getAsJsonArray(ACCOUNTS)) {
+            if (!e.isJsonObject()) { valid = false; continue; }
+            JsonObject a = e.getAsJsonObject();
+            if (!stringField(a, "uid") || !stringField(a, "name") || !stringField(a, "token")) {
+                valid = false;
+                continue;
             }
-        } catch (Exception ignored) {}
-        return out;
+            String token = str(a, "token");
+            if (token == null || token.isBlank()) continue;
+            out.add(new Account(str(a, "uid"), str(a, "name"), token));
+        }
+        return new AccountsRead(out, valid);
+    }
+
+    private static boolean stringField(JsonObject o, String k) {
+        return !o.has(k) || (o.get(k).isJsonPrimitive() && o.get(k).getAsJsonPrimitive().isString());
+    }
+
+    private static boolean writable(AccountsRead accounts) {
+        if (accounts.valid()) return true;
+        dev.musicplayer.MusicPlayerMod.LOGGER.warn("Cannot read {}: invalid account structure", file().getFileName());
+        return false;
     }
 
     private static String str(JsonObject o, String k) {
@@ -106,7 +171,10 @@ public final class TokenStore {
     public static synchronized void putAccount(String uid, String name, String token) {
         if (token == null || token.isBlank()) return;
         JsonObject o = read();
-        List<Account> list = readAccounts(o);
+        if (o == null) return;
+        AccountsRead accounts = readAccounts(o);
+        if (!writable(accounts)) return;
+        List<Account> list = accounts.list();
         list.removeIf(a -> (uid != null && uid.equals(a.uid())) || token.equals(a.token()));
         list.add(0, new Account(uid, name, token));
         while (list.size() > MAX_ACCOUNTS) list.remove(list.size() - 1);
@@ -116,14 +184,20 @@ public final class TokenStore {
     public static synchronized void removeAccountByUid(String uid) {
         if (uid == null) return;
         JsonObject o = read();
-        List<Account> list = readAccounts(o);
+        if (o == null) return;
+        AccountsRead accounts = readAccounts(o);
+        if (!writable(accounts)) return;
+        List<Account> list = accounts.list();
         if (list.removeIf(a -> uid.equals(a.uid()))) writeAccounts(o, list);
     }
 
     public static synchronized void removeAccountByToken(String token) {
         if (token == null) return;
         JsonObject o = read();
-        List<Account> list = readAccounts(o);
+        if (o == null) return;
+        AccountsRead accounts = readAccounts(o);
+        if (!writable(accounts)) return;
+        List<Account> list = accounts.list();
         if (list.removeIf(a -> token.equals(a.token()))) writeAccounts(o, list);
     }
 }
