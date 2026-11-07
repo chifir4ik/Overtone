@@ -1,5 +1,9 @@
 {
   "overtone.settings": "設定",
+  "overtone.platform.youtube": "YouTube (yt-dlp)",
+  "overtone.err.ytdlp_missing": "yt-dlp が見つかりません。インストールするか (github.com/yt-dlp/yt-dlp)、config/musicplayer-player.json の ytDlpPath を設定してください",
+  "overtone.err.ytdlp_failed": "yt-dlp: %s",
+  "overtone.err.ytdlp_format": "この動画には AAC (m4a) 音声がありません",
   "overtone.about": "%s 制作: %s。デザイン: SpotifyMusicMod (Kart-Modding, MIT)。",
   "overtone.account.named": "アカウント %s",
   "overtone.account.plain": "アカウント",
