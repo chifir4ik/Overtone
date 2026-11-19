@@ -1,0 +1,7 @@
+name: OvertoneShare
+version: '${version}'
+main: dev.overtone.share.OvertoneSharePlugin
+api-version: '1.20'
+description: Lets Overtone players share an earbud and see each other in the tab list.
+authors: [chifir4ik, PabJlo]
+folia-supported: false

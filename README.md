@@ -223,8 +223,11 @@ MIT, © 2026 chifir4ik, PabJlo — см. `LICENSE`. Можно использо�
 Текст лицензии — в `LICENSE-SpotifyMusicMod.txt`, он же включён в jar.
 Сторонние компоненты (SpotifyMusicMod — MIT, JLayer — LGPL, встроен в мод; JAAD — public domain) — в `THIRD_PARTY_NOTICES.txt`, текст LGPL — в `LICENSE-jlayer.txt`.
 
-
 ## Версии и сборка
+
+> **Структура репозитория:** мод и плагин лежат в отдельных папках — `mod/` (исходники мода, Gradle-проект) и `plugin/` (исходники плагина OvertoneShare). В корне находятся только `LICENSE`, `LICENSE-jlayer.txt`, `LICENSE-SpotifyMusicMod.txt`, `README.md` и эти две папки.
+
+### Мод (`mod/`)
 
 | Файл | Игра |
 |---|---|
@@ -232,17 +235,57 @@ MIT, © 2026 chifir4ik, PabJlo — см. `LICENSE`. Можно использо�
 
 Поддерживаются только перечисленные версии, на промежуточных (1.21.2, 1.21.3, 1.21.6, 1.21.7, 1.21.9) мод не проверялся.
 
-Сборка всех версий: `./gradlew buildAll --continue` (или `build-all.sh` / `build-all.bat`). Готовые jar-файлы окажутся в `dist/`.
-Одна версия: `./gradlew :fabric-1.21.4:build`, `./gradlew :neoforge-26.2:build`.
+Сборка всех версий мода:
+
+```bash
+cd mod
+./gradlew buildAll --continue (или build-all.sh / build-all.bat внутри mod/). Готовые jar-файлы окажутся в mod/dist/. 
+```
+
+Одна версия:
+```bash
+cd mod
+./gradlew :fabric-1.21.4:build
+./gradlew :neoforge-26.2:build
+```
+
 Нужен интернет (Gradle сам докачает JDK 21 и 25) и около 3 ГБ свободной памяти.
+Плагин OvertoneShare (plugin/)
 
-### Устройство проекта
+Плагин нужен для работы функции «наушник» (Share) на сервере. Paper/Spigot 1.20.1 и новее, Java 17, один jar overtone-share-1.1.0.jar.
 
-- `src/common` — весь код мода; от версии игры не зависит.
-- `src/compat/<поколение>` — тонкий слой над тем, что менялось между версиями: отрисовка (`CanvasImpl`), база экранов (`ModScreen`), ввод (`KeyInput`, `Keys`), текстуры, текст в мире.
-- `src/game/{mc,gui}` — где лежит текущий экран (`mc.screen` до 26.1, `mc.gui.screen()` с 26.2).
-- `src/fabric/<поколение>`, `src/neoforge/<поколение>` — точка входа и подписки на события загрузчика.
-- `targets.json` — список целей (версия игры, поколение, версии зависимостей). Новая версия — новая запись и, если API изменился, новое поколение.
-- Версию мода меняйте в `gradle.properties` (`mod_version`).
+Сборка плагина:
+```bash
+cd plugin
+./gradlew build
+```
 
-Для Minecraft 1.20.1 (Fabric и Forge/NeoForge) есть отдельный проект `overtone-1.20.1` с тем же кодом.
+Готовый jar появится в plugin/build/libs/overtone-share-1.1.0.jar. Его нужно положить в папку plugins вашего Paper/Spigot-сервера и перезапустить сервер.
+
+Если Gradle-обёртки в папке нет (например, при скачивании архива с GitHub), используйте установленный Gradle:
+```bash
+cd plugin
+gradle build
+```
+
+или соберите вручную через javac/jar, если у вас уже есть зависимости Paper API (обычно проще поставить Gradle).
+
+    На ванильном сервере (без плагина) «наушник» не работает — ванильный сервер не пересылает чужие данные. Одиночная игра по LAN работает без доработок и без плагина.
+
+Устройство проекта
+
+    mod/src/common — весь код мода; от версии игры не зависит.
+
+    mod/src/compat/<поколение> — тонкий слой над тем, что менялось между версиями: отрисовка (CanvasImpl), база экранов (ModScreen), ввод (KeyInput, Keys), текстуры, текст в мире.
+
+    mod/src/game/{mc,gui} — где лежит текущий экран (mc.screen до 26.1, mc.gui.screen() с 26.2).
+
+    mod/src/fabric/<поколение>, mod/src/neoforge/<поколение> — точка входа и подписки на события загрузчика.
+
+    mod/targets.json — список целей (версия игры, поколение, версии зависимостей). Новая версия — новая запись и, если API изменился, новое поколение.
+
+    Версию мода меняйте в mod/gradle.properties (mod_version).
+
+    plugin/ — исходники плагина OvertoneShare (Paper/Spigot), собирается отдельно через ./gradlew build.
+
+Для Minecraft 1.20.1 (Fabric и Forge/NeoForge) есть отдельный проект overtone-1.20.1 с тем же кодом.

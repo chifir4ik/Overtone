@@ -1,0 +1,34 @@
+// Плагин для Paper/Spigot: пересылает «наушник» Overtone между игроками. Один jar на все версии с 1.20.1.
+plugins {
+    id 'java'
+}
+
+group = 'dev.overtone'
+version = '1.1.0'
+base.archivesName = 'overtone-share'
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://repo.papermc.io/repository/maven-public/' }
+}
+
+dependencies {
+    compileOnly 'io.papermc.paper:paper-api:1.20.1-R0.1-SNAPSHOT'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(17)
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 17
+}
+
+// Протокол и логика пересылки общие с модом: берутся из его исходников, чтобы не разъехались.
+sourceSets.main.java.srcDir '../mod/src/share/java'
+
+processResources {
+    inputs.property 'version', version
+    filesMatching('plugin.yml') { expand(version: version) }
+}
